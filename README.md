@@ -71,7 +71,7 @@ Already running MeshCore on this board? Flashing over the top usually keeps your
 The OLED has room for five short lines. The dashboard is a web page that shows everything NOVA knows, on a computer or laptop: the full repeater table, a score graph over the last 15 minutes, a trip map with your track and the last-coverage marker, battery history, message history, diagnostics, and controls for profile, quiet hours and clearing the trip. There is nothing to install.
 
 1. Use the Bluetooth build, and plug the radio into the computer with a USB **data** cable. Your phone can stay connected over Bluetooth.
-2. Open `dashboard.html` (from the release, or `docs/index.html` in this repository) in **Chrome or Edge**. Firefox and Safari cannot talk to USB devices.
+2. Open the dashboard at **<https://propertymonitor-web.github.io/lodestar_nova_alpha/>** in **Chrome or Edge**. (Offline, you can instead open `dashboard.html` from the release.) Firefox and Safari cannot talk to USB devices.
 3. Click **Connect radio** and pick the radio's port. Close any other program using the port first (the flasher page, a serial monitor).
 4. Within a few seconds the readouts fill in. **Save log** downloads everything the page has received as a text file you can send when reporting a problem.
 
