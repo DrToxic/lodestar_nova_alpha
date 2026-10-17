@@ -1,0 +1,10 @@
+build/
+.pio/
+MeshCore/
+out/
+*.bin
+__pycache__/
+sample.json
+nova_test
+ui_test
+inc/
