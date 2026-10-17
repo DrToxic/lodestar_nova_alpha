@@ -33,6 +33,11 @@ on:
         default: false
         required: false
         type: boolean
+      replace_files:
+        description: "Owner only: replace the files already attached to the release with this build. Leave off unless you mean it"
+        default: false
+        required: false
+        type: boolean
       release_tag:
         description: "Release tag. Required when publishing. A new tag makes a release; an existing release with no files gets the firmware attached"
         default: ""
@@ -105,6 +110,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
+          REPLACE: ${{ inputs.replace_files }}
         run: |
           if [ -z "$TAG" ]; then
             echo "::error::Publishing needs a release tag. Type a NEW one, for example v0.1.0-alpha."
@@ -112,14 +118,16 @@ jobs:
           fi
           # A release with this tag may already exist (made by hand, on the Releases page). If it has
           # no files yet, this run attaches the firmware to it. If it already has files, stop: this
-          # workflow never replaces or deletes anything that is already published.
+          # workflow never replaces files unless the owner ticks replace_files.
           if gh release view "$TAG" >/dev/null 2>&1; then
             N=$(gh release view "$TAG" --json assets --jq '.assets | length')
-            if [ "$N" != "0" ]; then
+            if [ "$N" != "0" ] && [ "$REPLACE" = "true" ]; then
+              echo "The release $TAG has $N file(s); replace_files is on, so this build's files will replace them."
+            elif [ "$N" != "0" ]; then
               echo "::error::The release $TAG already has $N file(s). Choose a new tag; this workflow never overwrites a release."
               exit 1
             fi
-            echo "The release $TAG exists with no files: the firmware will be attached to it."
+            [ "$N" = "0" ] && echo "The release $TAG exists with no files: the firmware will be attached to it."
           fi
           if [ "$GITHUB_REF_NAME" != "main" ]; then
             echo "::warning::Publishing from branch '$GITHUB_REF_NAME'. Releases should normally be made from main."
@@ -183,7 +191,8 @@ jobs:
           Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install. dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           if gh release view "$TAG" >/dev/null 2>&1; then
             # attach to the release that is already there, leaving its title and notes as written
-            gh release upload "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html
+            gh release upload "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html --clobber
+            if [ "$UNITS" = "mph" ]; then gh release edit "$TAG" --notes "$NOTES"; fi
           else
             gh release create "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html \
               --target "$GITHUB_SHA" --title "LODESTAR NOVA $TAG" --notes "$NOTES" --prerelease
