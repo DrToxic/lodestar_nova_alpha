@@ -26,7 +26,7 @@ on:
         required: false
         type: boolean
       release_tag:
-        description: "NEW release tag, e.g. v0.1.0-alpha. Required when publishing; it must not exist yet"
+        description: "Release tag. Required when publishing. A new tag makes a release; an existing release with no files gets the firmware attached"
         default: ""
         required: false
         type: string
@@ -100,9 +100,16 @@ jobs:
             echo "::error::Publishing needs a release tag. Type a NEW one, for example v0.1.0-alpha."
             exit 1
           fi
+          # A release with this tag may already exist (made by hand, on the Releases page). If it has
+          # no files yet, this run attaches the firmware to it. If it already has files, stop: this
+          # workflow never replaces or deletes anything that is already published.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::A release named $TAG already exists. Choose a new tag; this workflow never overwrites a release."
-            exit 1
+            N=$(gh release view "$TAG" --json assets --jq '.assets | length')
+            if [ "$N" != "0" ]; then
+              echo "::error::The release $TAG already has $N file(s). Choose a new tag; this workflow never overwrites a release."
+              exit 1
+            fi
+            echo "The release $TAG exists with no files: the firmware will be attached to it."
           fi
           if [ "$GITHUB_REF_NAME" != "main" ]; then
             echo "::warning::Publishing from branch '$GITHUB_REF_NAME'. Releases should normally be made from main."
@@ -162,5 +169,10 @@ jobs:
           NOTES="LODESTAR NOVA companion firmware for the Heltec WiFi LoRa 32 V4 R2 (ESP32-S3R2, OLED), by FEAR REACTIVE. Not for the V4-R8. Alpha test build ($FW_ENV) on MeshCore commit $MC.
 
           Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install. dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
-          gh release create "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html \
-            --target "$GITHUB_SHA" --title "LODESTAR NOVA $TAG" --notes "$NOTES" --prerelease
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # attach to the release that is already there, leaving its title and notes as written
+            gh release upload "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html
+          else
+            gh release create "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html \
+              --target "$GITHUB_SHA" --title "LODESTAR NOVA $TAG" --notes "$NOTES" --prerelease
+          fi

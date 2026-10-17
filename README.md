@@ -52,7 +52,7 @@ The V4 has one user button, so the stock controls apply:
 ## Quick start
 
 1. **Check the board.** It must be a Heltec WiFi LoRa 32 **V4 R2**.
-2. **Get the firmware.** Download `firmware-merged.bin` from this repository's [Releases page](https://github.com/propertymonitor-web/lodestar_nova_alpha/releases), or [build your own](#building-it-yourself). Use the **Bluetooth** build (`heltec_v4_companion_radio_ble`) unless you know you want the USB one (see [which build](#which-build)).
+2. **Get the firmware.** Download `firmware-merged.bin` from this repository's [Releases page](https://github.com/propertymonitor-web/lodestar_nova_alpha/releases), or [build your own](#building-it-yourself). The release contains the **Bluetooth** build (`heltec_v4_companion_radio_ble`), which is the one to use. The USB build is for a phone-app-over-cable setup and you [build it yourself](#building-it-yourself) (see [which build](#which-build)).
 3. **Flash it** at https://flasher.meshcore.io using Chrome or Edge: choose **Custom Firmware**, pick `firmware-merged.bin`, connect to the board and flash. If the board does not show up, put it in bootloader mode: hold **PRG**, tap **RST**, release **PRG**, then try again.
 4. **Pair your phone** with the MeshCore app over Bluetooth. The pairing PIN is shown on the radio's Bluetooth screen (click through to it).
 5. **Click through the screens.** Give the Link screen about 10 minutes of adverts and traffic before judging the scores.
@@ -115,7 +115,7 @@ Please include your radio settings, what you were doing, and the dashboard's sav
 
 NOVA is a patch applied to the official MeshCore source. You do not need to know C++.
 
-**On GitHub (no software to install):** fork this repository, open the **Actions** tab, choose **Build LODESTAR NOVA firmware**, click **Run workflow**, pick the build, and wait about 4 minutes. Download the zip from the finished run's **Artifacts** (you must be signed in). Repository owners can tick **Publish** and type a **new** release tag to make a downloadable release; the workflow refuses an empty or already-used tag and never overwrites a release. Every push also runs the quick checks (about a minute): unit tests, a layout test that draws every screen on a pretend 128×64 display, and a check that the patch still applies to the newest MeshCore.
+**On GitHub (no software to install):** fork this repository, open the **Actions** tab, choose **Build LODESTAR NOVA firmware**, click **Run workflow**, pick the build, and wait about 4 minutes. Download the zip from the finished run's **Artifacts** (you must be signed in). Repository owners can tick **Publish** and type a release tag: a new tag makes a release, and an existing release that has no files yet gets the firmware attached. The workflow refuses an empty tag or a release that already has files, and never overwrites anything. Every push also runs the quick checks (about a minute): unit tests, a layout test that draws every screen on a pretend 128×64 display, and a check that the patch still applies to the newest MeshCore.
 
 **On your own computer:** you need `git`, Python 3, a C++ compiler for the tests, and [PlatformIO](https://platformio.org/) for the firmware (on Windows, WSL is the easiest way). The first firmware build downloads the ESP32 toolchain, which takes a while.
 
