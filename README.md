@@ -88,7 +88,7 @@ Your profile and quiet-hour settings are saved to the board's flash the moment y
 ## Honest limits
 
 - **Not run on hardware yet.** See the status note above.
-- **Delivery status is as good as what the radio can observe.** "Heard by repeater 3F" means NOVA heard a repeater re-broadcast your message (the same trick LODESTAR uses). Direct (non-flood) messages show *sent* then *delivered*, because there is no echo to hear. "Delivered" comes from the recipient's acknowledgement.
+- **Delivery status is as good as what the radio can observe.** "Heard by repeater 3F" means NOVA heard a repeater re-broadcast your message (the same trick LODESTAR uses). Direct (non-flood) messages show *sent* then *delivered*, because there is no echo to hear. "Delivered" comes from the recipient's acknowledgement. **Channel messages** (Public and other channels) have no acknowledgement at all in MeshCore, so they can only show *heard by repeater XX* or, after 10 seconds of silence, *unheard*.
 - **Back-to-coverage is a straight line**, not a route, and "coverage" means "a repeater scoring above LODESTAR's usable threshold". It needs a GPS fix, and the Back screen says so when it does not have one.
 - **Battery percentage is approximate.** It maps the cell voltage to a percentage; a loaded cell reads low. Time left appears only after 30 minutes on battery and only while the battery is steadily draining.
 - **Range check** uses MeshCore's repeater-discovery request. It reports repeaters that answered, so an empty answer means "nobody replied", not "nobody is there".

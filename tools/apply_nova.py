@@ -77,7 +77,7 @@ void MyMesh::logTx(mesh::Packet* pkt, int len) {
     uint8_t nv_hash[MAX_HASH_SIZE];
     pkt->calculatePacketHash(nv_hash);
     uint32_t nv_now = millis();
-    if (pkt->getPathHashCount() == 0 && pkt->getPayloadType() == PAYLOAD_TYPE_TXT_MSG) {
+    if (pkt->getPathHashCount() == 0 && (pkt->getPayloadType() == PAYLOAD_TYPE_TXT_MSG || pkt->getPayloadType() == PAYLOAD_TYPE_GRP_TXT)) {
       nova_core.deliveries.onTxText(nv_hash, nv_now);        // our own message, not one we are relaying
     }
     uint32_t nv_win = _radio->getEstAirtimeFor(len) * 12;
@@ -175,6 +175,9 @@ LOAD_SETTINGS = r'''  {  // --- NOVA: restore saved settings (if any); anything 
 
 SEND_HOOK = r'''          nova_core.deliveries.onSend(expected_ack, result == MSG_SEND_SENT_FLOOD, est_timeout, recipient->name,
                                       nova_core.linkUsable(), _ms->getMillis());
+'''
+
+CHAN_HOOK = r'''        nova_core.deliveries.onSendChannel(channel.name, nova_core.linkUsable(), _ms->getMillis());   // NOVA
 '''
 
 ACK_HOOK = r'''  {  // --- NOVA: an acknowledgement arrived ---
@@ -315,6 +318,8 @@ def main():
               lambda m: MYMESH_DEFS + m.group(1), "logRxRaw definition")
     c = patch(c, r"(          next_ack_idx = \(next_ack_idx \+ 1\) % EXPECTED_ACK_TABLE_SIZE;\n)",
               lambda m: m.group(1) + SEND_HOOK, "ack table insert in CMD_SEND_TXT_MSG")
+    c = patch(c, r"(      if \(success && sendGroupMessage\(msg_timestamp, channel\.channel, _prefs\.node_name, text, len - i\)\) \{\n)",
+              lambda m: m.group(1) + CHAN_HOOK, "channel send in CMD_SEND_CHANNEL_TXT_MSG")
     c = patch(c, r"(ContactInfo\*  MyMesh::processAck\(const uint8_t \*data\) \{\n)",
               lambda m: m.group(1) + ACK_HOOK, "processAck")
     c = patch(c, r"(void MyMesh::loop\(\) \{\n  BaseChatMesh::loop\(\);\n)",

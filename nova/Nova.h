@@ -81,6 +81,7 @@ struct Delivery {
   bool     flood;               // went out as a flood (a direct send has no echo to listen for)
   bool     hash_set;
   bool     link_ok_at_send;     // was a usable uplink known when it was sent?
+  bool     chan;                // a channel message: no acknowledgement exists, so the best outcome is a repeater echo
   uint8_t  state;
   int16_t  via;                 // first byte of the repeater that carried it first, or -1
   uint32_t ack;
@@ -120,6 +121,23 @@ public:
     stats.sent++;
   }
 
+  // The phone sent a message to a channel (Public, a private channel...). Channel messages carry no
+  // acknowledgement, so the most NOVA can tell you is whether a repeater picked it up.
+  void onSendChannel(const char* name, bool link_ok, uint32_t now) {
+    int slot = -1;
+    for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) {
+      if (!_d[i].used) { slot = i; break; }
+      if (slot < 0 || _d[i].seq < _d[slot].seq) slot = i;
+    }
+    Delivery& d = _d[slot];
+    memset(&d, 0, sizeof(d));
+    d.used = true; d.flood = true; d.chan = true; d.state = D_SENT; d.via = -1;
+    d.sent_ms = now; d.timeout_ms = 10000u;
+    d.link_ok_at_send = link_ok; d.seq = ++_seq;
+    strncpy(d.who, name ? name : "channel", sizeof(d.who) - 1);
+    stats.sent++;
+  }
+
   // Our radio put the message on the air. Binds the packet hash to the oldest message
   // that has none yet, so a later echo can be recognised.
   void onTxText(const uint8_t* hash, uint32_t now) {
@@ -150,7 +168,7 @@ public:
   void onAck(uint32_t ack, uint32_t now) {
     for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) {
       Delivery& d = _d[i];
-      if (!d.used || d.ack != ack || d.state == D_DELIVERED) continue;
+      if (!d.used || d.chan || d.ack != ack || d.state == D_DELIVERED) continue;
       if (d.state == D_FAILED && stats.failed) stats.failed--;     // it arrived after all
       d.state = D_DELIVERED; d.rtt_ms = elapsed(now, d.sent_ms);
       stats.delivered++;
@@ -161,6 +179,7 @@ public:
     for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) {
       Delivery& d = _d[i];
       if (!d.used || d.state == D_DELIVERED || d.state == D_FAILED) continue;
+      if (d.chan && d.state == D_REPEATED) continue;            // a repeater has it: as far as a channel message goes, done
       if (elapsed(now, d.sent_ms) > d.timeout_ms + 2000u) { d.state = D_FAILED; stats.failed++; }
     }
   }
@@ -177,7 +196,7 @@ public:
     return (n >= 0 && n < cnt) ? &_d[order[n]] : nullptr;
   }
   int count() const { int n = 0; for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) n += _d[i].used; return n; }
-  int pending() const { int n = 0; for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) n += (_d[i].used && _d[i].state <= D_REPEATED); return n; }
+  int pending() const { int n = 0; for (int i = 0; i < NOVA_MAX_DELIVERIES; i++) n += (_d[i].used && (_d[i].state == D_SENT || (_d[i].state == D_REPEATED && !_d[i].chan))); return n; }
 
   static const char* stateName(uint8_t s) {
     switch (s) { case D_SENT: return "sent"; case D_REPEATED: return "repeated"; case D_DELIVERED: return "delivered"; default: return "failed"; }
@@ -191,7 +210,9 @@ public:
       case D_REPEATED:  if (d.via >= 0) { snprintf(out, cap, "%-8s heard by %02X", who, (unsigned)d.via); }
                         else { snprintf(out, cap, "%-8s repeated", who); }
                         break;
-      case D_FAILED:    snprintf(out, cap, "%-8s FAILED%s", who, d.link_ok_at_send ? "" : " no link"); break;
+      case D_FAILED:    if (d.chan) snprintf(out, cap, "%-8s unheard", who);
+                        else snprintf(out, cap, "%-8s FAILED%s", who, d.link_ok_at_send ? "" : " no link");
+                        break;
       default:          snprintf(out, cap, "%-8s sent %lus", who, (unsigned long)(elapsed(now, d.sent_ms) / 1000)); break;
     }
   }
@@ -615,8 +636,8 @@ public:
       const Delivery* d = deliveries.newest(i);
       if (!d) break;
       j.f("%s{\"who\":\"", i ? "," : ""); j.esc(d->who);
-      j.f("\",\"st\":\"%s\",\"via\":%d,\"rtt\":%lu,\"age\":%lu,\"flood\":%d,\"link\":%d}", DeliveryLog::stateName(d->state), (int)d->via,
-          (unsigned long)d->rtt_ms, (unsigned long)(elapsed(now, d->sent_ms) / 1000u), d->flood ? 1 : 0, d->link_ok_at_send ? 1 : 0);
+      j.f("\",\"st\":\"%s\",\"via\":%d,\"rtt\":%lu,\"age\":%lu,\"flood\":%d,\"link\":%d,\"chan\":%d}", DeliveryLog::stateName(d->state), (int)d->via,
+          (unsigned long)d->rtt_ms, (unsigned long)(elapsed(now, d->sent_ms) / 1000u), d->flood ? 1 : 0, d->link_ok_at_send ? 1 : 0, d->chan ? 1 : 0);
     }
     j.s("]}");
 

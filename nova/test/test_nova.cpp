@@ -101,6 +101,20 @@ int main(int argc, char** argv) {
     L.onSend(1, true, 100, "Fast", true, 0);                 CHECK(L.newest(0)->timeout_ms >= 3000);        // timeout never absurdly short
   }
 
+  // 5b. channel messages: no ack exists; a repeater echo is the best outcome, silence is "unheard"
+  {
+    DeliveryLog L; uint8_t h[LODESTAR_HASH_LEN], h2[LODESTAR_HASH_LEN]; hashOf(h, 20); hashOf(h2, 21);
+    L.onSendChannel("Public", true, 1000);                   CHECK(L.count() == 1 && L.stats.sent == 1 && L.pending() == 1 && L.newest(0)->chan);
+    L.onTxText(h, 1100); L.onHeard(h, 0x3F);
+    CHECK(L.newest(0)->state == D_REPEATED && L.pending() == 0);
+    L.loop(60000);                                           CHECK(L.newest(0)->state == D_REPEATED && L.stats.failed == 0);   // an echo is final for a channel
+    L.onAck(0, 61000);                                       CHECK(L.newest(0)->state == D_REPEATED && L.stats.delivered == 0);
+    L.onSendChannel("Public", true, 70000);                  L.onTxText(h2, 70100);
+    L.loop(75000);                                           CHECK(L.newest(0)->state == D_SENT);
+    L.loop(83000);                                           CHECK(L.newest(0)->state == D_FAILED && L.stats.failed == 1);
+    char line[40]; DeliveryLog::line(*L.newest(0), 83000, line, sizeof line);   CHECK(strstr(line, "unheard"));
+  }
+
   // 6. deliveries: ring keeps the newest, order newest-first; binding is first-in first-out
   {
     DeliveryLog L; uint8_t h[LODESTAR_HASH_LEN];

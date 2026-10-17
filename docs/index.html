@@ -186,7 +186,7 @@ details summary { cursor: pointer; font-weight: 500; color: var(--ink2); }
       <div class="sub" id="rBatSub">&nbsp;</div>
     </div>
     <div class="read">
-      <h2>Messages delivered</h2>
+      <h2>Messages you sent</h2>
       <div class="big" id="rDl">&ndash;</div>
       <div class="sub" id="rDlSub">&nbsp;</div>
     </div>
@@ -227,7 +227,7 @@ details summary { cursor: pointer; font-weight: 500; color: var(--ink2); }
         <h2>Messages you sent</h2>
         <p class="counts" id="dlCounts"></p>
         <ul class="dl" id="dlList"></ul>
-        <p class="empty" id="dlEmpty">No messages sent yet. Send one from the phone app.</p>
+        <p class="empty" id="dlEmpty">No messages sent yet. Send one from the phone app (direct messages show delivery; channel messages show whether a repeater heard them).</p>
       </section>
 
       <section class="panel">
@@ -490,7 +490,7 @@ function renderDeliveries(d) {
   $("dlCounts").innerHTML = '<span><b>' + (d.sent || 0) + '</b> sent</span><span><b>' + (d.rep || 0) + '</b> repeated</span><span><b>' + (d.ok || 0) + '</b> delivered</span><span><b>' + (d.fail || 0) + '</b> failed</span>';
   const ICON = { sent: "…", repeated: "↻", delivered: "✓", failed: "✕" };
   $("dlList").innerHTML = list.map((x) => {
-    let what = x.st === "delivered" ? "Delivered in " + (x.rtt / 1000).toFixed(1) + " s" : x.st === "repeated" ? "Picked up by repeater " + (x.via >= 0 ? x.via.toString(16).toUpperCase().padStart(2, "0") : "") : x.st === "failed" ? (x.link ? "No acknowledgement" : "No acknowledgement, no uplink at the time") : "On its way, " + x.age + " s";
+    let what = x.st === "delivered" ? "Delivered in " + (x.rtt / 1000).toFixed(1) + " s" : x.st === "repeated" ? (x.chan ? "Channel message heard by repeater " : "Picked up by repeater ") + (x.via >= 0 ? x.via.toString(16).toUpperCase().padStart(2, "0") : "") : x.st === "failed" && x.chan ? "No repeater heard it" : x.st === "failed" ? (x.link ? "No acknowledgement" : "No acknowledgement, no uplink at the time") : "On its way, " + x.age + " s";
     return '<li class="' + x.st + '"><span class="ico" aria-hidden="true">' + ICON[x.st] + '</span><span><span class="who">' + esc(x.who) + '</span> <span class="what">' + esc(what) + '</span></span><span class="what">' + fmtAge(x.age) + " ago</span></li>";
   }).join("");
 }
