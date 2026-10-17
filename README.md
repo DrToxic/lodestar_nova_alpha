@@ -63,7 +63,7 @@ Already running MeshCore on this board? Flashing over the top usually keeps your
 
 | Build | Phone connection | USB cable | Use it when |
 | --- | --- | --- | --- |
-| `heltec_v4_companion_radio_ble` | Bluetooth (and WiFi if you set it up) | Free, so the **dashboard works** | Almost always |
+| `heltec_v4_companion_radio_ble` | Bluetooth only (no WiFi) | Free, so the **dashboard works** | Almost always |
 | `heltec_v4_companion_radio_usb` | USB cable | Carries the phone-app link, so **no dashboard** | The app on a computer over USB |
 
 ## km/h or mph
