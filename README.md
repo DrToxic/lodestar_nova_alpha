@@ -66,6 +66,10 @@ Already running MeshCore on this board? Flashing over the top usually keeps your
 | `heltec_v4_companion_radio_ble` | Bluetooth (and WiFi if you set it up) | Free, so the **dashboard works** | Almost always |
 | `heltec_v4_companion_radio_usb` | USB cable | Carries the phone-app link, so **no dashboard** | The app on a computer over USB |
 
+## km/h or mph
+
+Every release comes in one speed unit. The version name ends in `-mph` on the miles-per-hour build (shown on the NOVA info screen and in the dashboard's diagnostics). Distances are still in kilometres and metres in both. To build your own, set **units** to `mph` when you run the build workflow.
+
 ## The dashboard
 
 The OLED has room for five short lines. The dashboard is a web page that shows everything NOVA knows, on a computer or laptop: the full repeater table, a score graph over the last 15 minutes, a trip map with your track and the last-coverage marker, battery history, message history, diagnostics, and controls for profile, quiet hours and clearing the trip. There is nothing to install.

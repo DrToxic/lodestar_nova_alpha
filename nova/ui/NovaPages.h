@@ -133,8 +133,8 @@ static inline void pageTrip(DisplayDriver& d, nova::Nova& N, uint32_t now, bool 
   unsigned long tot = t.total_ms / 1000u, mov = t.moving_ms / 1000u;
   snprintf(b, sizeof(b), "time %lu:%02lu mov %lu:%02lu", tot / 3600u, (tot / 60u) % 60u, mov / 3600u, (mov / 60u) % 60u);
   row(d, 1, b);
-  double avg = t.moving_ms > 60000u ? (t.dist_m / ((double)t.moving_ms / 1000.0)) * 3.6 : 0.0;
-  snprintf(b, sizeof(b), "top %d avg %d km/h", (int)(t.top_mps * 3.6f + 0.5f), (int)(avg + 0.5));
+  double avg = t.moving_ms > 60000u ? (t.dist_m / ((double)t.moving_ms / 1000.0)) * (double)NOVA_SPD_MUL : 0.0;
+  snprintf(b, sizeof(b), "top %d avg %d " NOVA_SPD_UNIT, (int)(t.top_mps * NOVA_SPD_MUL + 0.5f), (int)(avg + 0.5));
   row(d, 2, b);
   if (!gps_on) row(d, 3, "GPS is off (GPS page)");
   else if (!N.link.hasFix(now)) row(d, 3, "GPS: no fix yet");

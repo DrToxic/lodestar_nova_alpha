@@ -20,6 +20,14 @@ on:
         options:
           - heltec_v4_companion_radio_ble
           - heltec_v4_companion_radio_usb
+      units:
+        description: "Speed units shown by the screens and the dashboard: metric (km/h) or mph"
+        default: metric
+        required: true
+        type: choice
+        options:
+          - metric
+          - mph
       publish:
         description: "Publish the result as a GitHub Release anyone can download"
         default: false
@@ -45,6 +53,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Ilodestar -Inova nova/test/test_nova.cpp -o nova_test
           ./nova_test sample.json
+          g++ -std=c++17 -Wall -Wextra -DNOVA_MPH=1 -Ilodestar -Inova nova/test/test_nova.cpp -o nova_test_mph
+          ./nova_test_mph
 
       - name: The dashboard line is real JSON
         run: |
@@ -132,6 +142,7 @@ jobs:
         working-directory: MeshCore
         env:
           FW_ENV: ${{ inputs.env }}
+          PLATFORMIO_BUILD_FLAGS: ${{ inputs.units == 'mph' && '-DNOVA_MPH=1' || '' }}
         run: |
           set -o pipefail
           pio run -t mergebin -e "$FW_ENV" 2>&1 | tee ../build.log
@@ -164,9 +175,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release_tag }}
           FW_ENV: ${{ inputs.env }}
+          UNITS: ${{ inputs.units == 'mph' && 'mph' || 'km/h' }}
         run: |
           MC=$(cut -c1-10 out/meshcore_commit.txt)
-          NOTES="LODESTAR NOVA companion firmware for the Heltec WiFi LoRa 32 V4 R2 (ESP32-S3R2, OLED), by FEAR REACTIVE. Not for the V4-R8. Alpha test build ($FW_ENV) on MeshCore commit $MC.
+          NOTES="LODESTAR NOVA companion firmware for the Heltec WiFi LoRa 32 V4 R2 (ESP32-S3R2, OLED), by FEAR REACTIVE. Not for the V4-R8. Alpha test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
 
           Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install. dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           if gh release view "$TAG" >/dev/null 2>&1; then

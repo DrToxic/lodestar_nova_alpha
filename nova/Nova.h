@@ -30,7 +30,16 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// Speed units. The default build speaks km/h; build with -DNOVA_MPH=1 for a miles-per-hour version.
+#ifdef NOVA_MPH
+#define NOVA_VERSION        "0.1.0-alpha-mph"
+#define NOVA_SPD_MUL        2.23694f      // metres per second -> miles per hour
+#define NOVA_SPD_UNIT       "mph"
+#else
 #define NOVA_VERSION        "0.1.0-alpha"
+#define NOVA_SPD_MUL        3.6f          // metres per second -> kilometres per hour
+#define NOVA_SPD_UNIT       "km/h"
+#endif
 #define NOVA_MAX_DELIVERIES 8
 #define NOVA_TRACK_POINTS   64
 #define NOVA_BATT_SAMPLES   96
@@ -570,8 +579,8 @@ public:
     } else if (strncmp(args, "trip", 4) == 0) {
       const char* a = args + 4; while (*a == ' ') a++;
       if (strncmp(a, "reset", 5) == 0) { trip.reset(); snprintf(reply, cap, "OK - trip cleared"); }
-      else snprintf(reply, cap, "trip %.1f km, %lu min moving, top %d km/h", trip.dist_m / 1000.0,
-                    (unsigned long)(trip.moving_ms / 60000u), (int)(trip.top_mps * 3.6f + 0.5f));
+      else snprintf(reply, cap, "trip %.1f km, %lu min moving, top %d " NOVA_SPD_UNIT, trip.dist_m / 1000.0,
+                    (unsigned long)(trip.moving_ms / 60000u), (int)(trip.top_mps * NOVA_SPD_MUL + 0.5f));
     } else if (strncmp(args, "defaults", 8) == 0) {
       cfg = Settings(); applyProfile(); settings_dirty = true;
       snprintf(reply, cap, "OK - NOVA settings back to defaults");
@@ -587,7 +596,7 @@ public:
   size_t json(char* out, size_t cap, uint32_t now, int local_hour) {
     J j(out, cap);
     link.loop(now);
-    j.f("{\"nova\":1,\"v\":\"%s\",\"t\":%lu,\"prof\":\"%s\"", NOVA_VERSION, (unsigned long)now, profileParams(cfg.profile).name);
+    j.f("{\"nova\":1,\"v\":\"%s\",\"unit\":\"%s\",\"t\":%lu,\"prof\":\"%s\"", NOVA_VERSION, NOVA_SPD_UNIT, (unsigned long)now, profileParams(cfg.profile).name);
     j.f(",\"quiet\":{\"on\":%d,\"now\":%d,\"s\":%d,\"e\":%d}", cfg.quiet_on ? 1 : 0, quietNow(local_hour) ? 1 : 0, cfg.quiet_start, cfg.quiet_end);
 
     // battery
@@ -604,8 +613,8 @@ public:
     bool fix = link.hasFix(now);
     j.f(",\"gps\":{\"fix\":%d", fix ? 1 : 0);
     if (fix) {
-      j.f(",\"lat\":%.6f,\"lon\":%.6f,\"sats\":%d,\"kmh\":%d,\"mov\":%d,\"course\":", (double)p.lat_e6 / 1e6, (double)p.lon_e6 / 1e6,
-          (int)p.sats, (int)(p.speed_mps * 3.6f + 0.5f), link.moving(now) ? 1 : 0);
+      j.f(",\"lat\":%.6f,\"lon\":%.6f,\"sats\":%d,\"spd\":%d,\"mov\":%d,\"course\":", (double)p.lat_e6 / 1e6, (double)p.lon_e6 / 1e6,
+          (int)p.sats, (int)(p.speed_mps * NOVA_SPD_MUL + 0.5f), link.moving(now) ? 1 : 0);
       if (p.course_valid) j.f("%d", (int)(p.course_deg + 0.5f) % 360); else j.s("null");
     }
     j.s("}");
@@ -643,7 +652,7 @@ public:
 
     // trip
     j.f(",\"trip\":{\"km\":%.2f,\"mov_s\":%lu,\"tot_s\":%lu,\"top\":%d,\"track\":[", trip.dist_m / 1000.0, (unsigned long)(trip.moving_ms / 1000u),
-        (unsigned long)(trip.total_ms / 1000u), (int)(trip.top_mps * 3.6f + 0.5f));
+        (unsigned long)(trip.total_ms / 1000u), (int)(trip.top_mps * NOVA_SPD_MUL + 0.5f));
     for (int i = 0; i < trip.trackCount(); i++) j.f("%s[%.5f,%.5f]", i ? "," : "", (double)trip.trackAt(i).lat_e6 / 1e6, (double)trip.trackAt(i).lon_e6 / 1e6);
     j.s("]");
     j.f(",\"cov\":");

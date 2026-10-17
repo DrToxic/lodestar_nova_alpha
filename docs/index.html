@@ -333,7 +333,7 @@ function render() {
     $("rUp").innerHTML = "None";
     $("rUpSub").textContent = links.length ? "No repeater is good enough yet (" + links.length + " heard)" : "Nothing heard yet";
   }
-  if (g.fix) { $("rSpd").innerHTML = g.kmh + '<span class="u">km/h</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + g.course + "°" : "") + ", " + g.sats + " satellites"; }
+  if (g.fix) { $("rSpd").innerHTML = g.spd + '<span class="u">' + (f.unit || "km/h") + '</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + g.course + "°" : "") + ", " + g.sats + " satellites"; }
   else { $("rSpd").innerHTML = "&ndash;"; $("rSpdSub").textContent = "No GPS fix. Turn GPS on from the phone app or the GPS screen."; }
   if (b.pct != null && b.pct >= 0) {
     $("rBat").innerHTML = b.pct + '<span class="u">%</span>';
@@ -447,7 +447,7 @@ function renderBatt(b) {
 function renderMap(f) {
   const host = $("mapChart"); host.textContent = "";
   const t = f.trip || {}, g = f.gps || {}, track = t.track || [];
-  $("tripNote").textContent = (t.km != null ? t.km.toFixed(1) + " km" : "") + (t.tot_s ? ", " + fmtDur(t.tot_s) + ", top " + (t.top || 0) + " km/h" : "");
+  $("tripNote").textContent = (t.km != null ? t.km.toFixed(1) + " km" : "") + (t.tot_s ? ", " + fmtDur(t.tot_s) + ", top " + (t.top || 0) + " " + (f.unit || "km/h") : "");
   const W = 520, H = 300;
   const svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Map of the trip so far" }); host.appendChild(svg);
   el("rect", { x: 0.5, y: 0.5, width: W - 1, height: H - 1, rx: 6, fill: css("--bg"), stroke: css("--line") }, svg);
@@ -572,7 +572,7 @@ function demoFrame(D) {
   if (D.cov) { const dy = (D.cov.lat - D.lat) * 111320, dx = (D.cov.lon - D.lon) * 111320 * Math.cos(D.lat * Math.PI / 180); let b = Math.atan2(dx, dy) * 180 / Math.PI; if (b < 0) b += 360; cov = { lat: D.cov.lat, lon: D.cov.lon, m: Math.round(Math.hypot(dx, dy)), brg: Math.round(b) % 360, age: 0 }; }
   return { nova: 1, v: "demo", t: n * 1000, prof: D.prof, quiet: { on: D.qOn, now: 0, s: D.qs, e: D.qe },
     bat: { mv: Math.round(D.bat), pct, chg: 0, trend: -3.4, hrs: pct / 3.4, hist: D.hist.length > 3 ? D.hist : [3990, 3988, 3985, 3981, 3978] },
-    gps: { fix: 1, lat: D.lat, lon: D.lon, sats: 9, kmh: Math.round(spd * 3.6), mov: 1, course: Math.round(((ang * 180 / Math.PI) + 90) % 360) },
+    gps: { fix: 1, lat: D.lat, lon: D.lon, sats: 9, spd: Math.round(spd * 3.6), mov: 1, course: Math.round(((ang * 180 / Math.PI) + 90) % 360) },
     best: links[0].best ? parseInt(links[0].id.slice(0, 2), 16) : -1, links,
     dl: { sent: D.sent, rep: D.rep, ok: D.ok, fail: D.fail, list: D.list.map((x) => ({ who: x.who, st: x.st, via: x.via, rtt: x.rtt, age: x.age, flood: x.flood, link: x.link })) },
     trip: { km: D.km, mov_s: n, tot_s: n, top: 68, track: D.track, cov }, diag: { rx: D.rx, tx: D.tx, snr: 4.2, last_rx_s: 1, up_s: 4000 + n } };
