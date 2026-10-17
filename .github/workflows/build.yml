@@ -143,7 +143,7 @@ jobs:
           mkdir out
           cp "MeshCore/.pio/build/$FW_ENV/firmware-merged.bin" out/
           cp "MeshCore/.pio/build/$FW_ENV/firmware.bin" out/
-          cp dashboard/index.html out/dashboard.html
+          cp docs/index.html out/dashboard.html
           git -C MeshCore rev-parse HEAD > out/meshcore_commit.txt
 
       - uses: actions/upload-artifact@v4
@@ -161,6 +161,6 @@ jobs:
           MC=$(cut -c1-10 out/meshcore_commit.txt)
           NOTES="LODESTAR NOVA companion firmware for the Heltec WiFi LoRa 32 V4 R2 (ESP32-S3R2, OLED), by FEAR REACTIVE. Not for the V4-R8. Alpha test build ($FW_ENV) on MeshCore commit $MC.
 
-          Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install. dashboard.html is the browser dashboard, the same page as the repository's dashboard folder. See the README for setup and testing notes."
+          Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install. dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           gh release create "$TAG" out/firmware-merged.bin out/firmware.bin out/dashboard.html \
             --target "$GITHUB_SHA" --title "LODESTAR NOVA $TAG" --notes "$NOTES" --prerelease

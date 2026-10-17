@@ -20,6 +20,13 @@
   #endif
 #endif
 
+// What the "Enter" action is called on this board: a single-button board uses a long press.
+#if UI_HAS_JOYSTICK || UI_HAS_ROTARY_INPUT
+  #define NOVA_HOLD "Enter"
+#else
+  #define NOVA_HOLD "hold"
+#endif
+
 namespace novaui {
 
 static const int ROW0 = 19;      // y of the first row
@@ -132,7 +139,7 @@ static inline void pageTrip(DisplayDriver& d, nova::Nova& N, uint32_t now, bool 
   if (!gps_on) row(d, 3, "GPS is off (GPS page)");
   else if (!N.link.hasFix(now)) row(d, 3, "GPS: no fix yet");
   else { snprintf(b, sizeof(b), "GPS fix, %d sats", (int)N.link.position().sats); row(d, 3, b); }
-  row(d, 4, armed ? "Enter again: CLEAR" : "Enter x2: clear trip");
+  row(d, 4, armed ? NOVA_HOLD " again: CLEAR" : NOVA_HOLD " x2: clear trip");
 }
 
 // A line made of small squares: the display has no line primitive.
@@ -213,9 +220,9 @@ static inline void pageSettings(DisplayDriver& d, nova::Nova& N, uint32_t now, u
   d.setTextSize(1); d.setColor(UIColor::primary_txt);
   char b[48];
   snprintf(b, sizeof(b), "NOVA %s", NOVA_VERSION); row(d, 0, b);
-  snprintf(b, sizeof(b), "profile %s %s", nova::profileParams(N.cfg.profile).name, "(Enter)"); row(d, 1, b);
-  if (N.cfg.quiet_on) snprintf(b, sizeof(b), "quiet %02d-%02d (3-click)", N.cfg.quiet_start, N.cfg.quiet_end);
-  else snprintf(b, sizeof(b), "quiet off (3-click)");
+  snprintf(b, sizeof(b), "profile %s (" NOVA_HOLD ")", nova::profileParams(N.cfg.profile).name); row(d, 1, b);
+  if (N.cfg.quiet_on) snprintf(b, sizeof(b), "quiet %02d-%02d (next page)", N.cfg.quiet_start, N.cfg.quiet_end);
+  else snprintf(b, sizeof(b), "quiet off (next page)");
   row(d, 2, b);
   if (N.diag.have_rx) snprintf(b, sizeof(b), "rx %lu tx %lu snr%+.0f", (unsigned long)N.diag.rx, (unsigned long)N.diag.tx, (double)N.diag.rx_snr);
   else snprintf(b, sizeof(b), "rx %lu tx %lu", (unsigned long)N.diag.rx, (unsigned long)N.diag.tx);
@@ -224,6 +231,32 @@ static inline void pageSettings(DisplayDriver& d, nova::Nova& N, uint32_t now, u
   if (free_heap) snprintf(b, sizeof(b), "up %luh%02lum  %luk free", up / 3600u, (up / 60u) % 60u, (unsigned long)(free_heap / 1024u));
   else snprintf(b, sizeof(b), "up %luh%02lum", up / 3600u, (up / 60u) % 60u);
   row(d, 4, b);
+}
+
+// ---- QUIET: night-time silence -------------------------------------------------------------------
+static inline void pageQuiet(DisplayDriver& d, nova::Nova& N, int hour) {
+  d.setTextSize(1); d.setColor(UIColor::primary_txt);
+  char b[48];
+  row(d, 0, "QUIET HOURS");
+  if (N.cfg.quiet_on) {
+    snprintf(b, sizeof(b), "ON  %02d:00 to %02d:00", N.cfg.quiet_start, N.cfg.quiet_end); row(d, 1, b);
+    row(d, 2, hour < 0 ? "clock not set: sound on" : (N.quietNow(hour) ? "quiet right now" : "not quiet right now"));
+  } else { row(d, 1, "OFF"); row(d, 2, "sound and screen as usual"); }
+  row(d, 3, "favourites still alert");
+  row(d, 4, NOVA_HOLD ": turn on / off");
+}
+
+// ---- boot splash ----------------------------------------------------------------------------------
+static inline void splash(DisplayDriver& d, const char* meshcore_version) {
+  int mid = d.width() / 2;
+  d.setColor(UIColor::corp_blue); d.setTextSize(2);
+  d.drawTextCentered(mid, 2, "LODESTAR");
+  d.drawTextCentered(mid, 19, "NOVA");
+  d.setColor(UIColor::primary_txt); d.setTextSize(1);
+  d.drawTextCentered(mid, 40, "by FEAR REACTIVE");
+  char b[32]; snprintf(b, sizeof(b), "MeshCore %.12s", meshcore_version);
+  d.setColor(UIColor::secondary_txt);
+  d.drawTextCentered(mid, 53, b);
 }
 
 // ---- key handling shared by the pages -------------------------------------------------------------

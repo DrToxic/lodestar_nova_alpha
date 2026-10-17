@@ -51,6 +51,12 @@ int main() {
     Mock m6; pageBack(m6, N, now, true);    CHECK(m6.has("waiting for a GPS fix"));
     Mock m7; pageBatt(m7, N, now);          CHECK(m7.has("no reading"));
     Mock m8; pageSettings(m8, N, now, 0);   CHECK(m8.has("NOVA 0.1.0-alpha") && m8.has("profile car"));
+    Mock m9; pageQuiet(m9, N, -1); CHECK(m9.has("OFF") && m9.bad == 0);
+    N.cfg.quiet_on = true; N.cfg.quiet_start = 22; N.cfg.quiet_end = 7;
+    Mock m10; pageQuiet(m10, N, 23); CHECK(m10.has("ON  22:00 to 07:00") && m10.has("quiet right now") && m10.bad == 0);
+    Mock m11; pageQuiet(m11, N, 12); CHECK(m11.has("not quiet right now"));
+    Mock m12; pageQuiet(m12, N, -1); CHECK(m12.has("clock not set"));
+    N.cfg.quiet_on = false;
     CHECK(!(m.bad + m2.bad + m3.bad + m4.bad + m5.bad + m6.bad + m7.bad + m8.bad));
   }
   // ---- a busy node ----
@@ -70,7 +76,7 @@ int main() {
     r.count = 0; Mock m3b; pageRange(m3b, N, r);   CHECK(m3b.has("NONE: 0") && m3b.has("nobody answered"));
     r.running = true; r.count = 2; Mock m3c; pageRange(m3c, N, r);   CHECK(m3c.has("listening") && m3c.has("2 answered"));
     r.available = false; Mock m3d; pageRange(m3d, N, r);   CHECK(m3d.has("not in this build"));
-    Mock m4; pageTrip(m4, N, t, true, true);       CHECK(m4.has("TRIP 2.9 km") && m4.has("GPS fix, 9 sats") && m4.has("Enter again"));
+    Mock m4; pageTrip(m4, N, t, true, true);       CHECK(m4.has("TRIP 2.9 km") && m4.has("GPS fix, 9 sats") && m4.has("hold again"));
     Mock m5; pageBack(m5, N, t, true);             CHECK(m5.has("IN COVERAGE"));
     for (int i = 0; i < 40; i++) { t += 60000; N.loop(t, 3900, false); }                       // coverage expires
     t = drive(N, t, 90, lat, lon, 25.0);                                                       // keep going north, no coverage
@@ -81,6 +87,9 @@ int main() {
     Mock m8; pageSettings(m8, N, t, 180000);       CHECK(m8.has("k free"));
     CHECK(!(m.bad + m2.bad + m3.bad + m3b.bad + m3c.bad + m3d.bad + m4.bad + m5.bad + m6.bad + m6b.bad + m7.bad + m8.bad));
   }
+  // ---- splash fits, and says who made it ----
+  { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.has("LODESTAR") && m.has("NOVA") && m.has("by FEAR REACTIVE") && m.has("MeshCore v1.15.0"));
+    Mock m2; splash(m2, "v10.200.3000-abcdef"); CHECK(m2.bad == 0); }
   // ---- the arrow points the right way (checked on the squares it draws) ----
   {
     struct Probe : Mock { int minx = 999, maxx = -1, miny = 999, maxy = -1; void fillRect(int x, int y, int w, int h) override { Mock::fillRect(x, y, w, h); if (x < 50) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; } } };

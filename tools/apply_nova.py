@@ -201,6 +201,7 @@ SETTINGS_ENUM = '''#if UI_DISCOVER_SCREEN
     DISCOVERY,
 #endif
     NV_SET,
+    NV_QUIET,
 '''
 
 RENDER_PAGES = r'''    } else if (_page == HomePage::NV_LINK) {
@@ -234,6 +235,8 @@ RENDER_PAGES = r'''    } else if (_page == HomePage::NV_LINK) {
       uint32_t nv_heap = 0;
 #endif
       novaui::pageSettings(display, nova_core, millis(), nv_heap);
+    } else if (_page == HomePage::NV_QUIET) {
+      novaui::pageQuiet(display, nova_core, nova::Nova::localHour(rtc_clock.getCurrentTime(), _node_prefs->tz_offset));
 '''
 
 KEY_PAGES = r'''    if (c == KEY_ENTER && _page == HomePage::NV_TRIP) {
@@ -254,7 +257,7 @@ KEY_PAGES = r'''    if (c == KEY_ENTER && _page == HomePage::NV_TRIP) {
       _task->showAlert(nova::profileParams(nova_core.cfg.profile).name, 800);
       return true;
     }
-    if (c == KEY_SELECT && _page == HomePage::NV_SET) {
+    if (c == KEY_ENTER && _page == HomePage::NV_QUIET) {
       novaui::toggleQuiet(nova_core);
       _task->showAlert(nova_core.cfg.quiet_on ? "Quiet hours ON" : "Quiet hours off", 800);
       return true;
@@ -336,10 +339,13 @@ def main():
     u = patch(u, r"(#ifndef UI_NO_HIBERNATE\n    \} else if \(_page == HomePage::SHUTDOWN\) \{)",
               lambda m: RENDER_PAGES + m.group(1), "render: SHUTDOWN branch")
     u = patch(u, r"    return 5000;   // next render after 5000 ms",
-              "    return (_page >= HomePage::NV_LINK && _page <= HomePage::NV_RANGE) || _page == HomePage::NV_SET ? 2000 : 5000;   // NOVA pages refresh faster",
+              "    return (_page >= HomePage::NV_LINK && _page <= HomePage::NV_RANGE) || _page == HomePage::NV_SET || _page == HomePage::NV_QUIET ? 2000 : 5000;   // NOVA pages refresh faster",
               "render interval")
     u = patch(u, r"(#ifndef UI_NO_HIBERNATE\n    if \(c == KEY_ENTER && _page == HomePage::SHUTDOWN\) \{)",
               lambda m: KEY_PAGES + m.group(1), "handleInput: SHUTDOWN key")
+    # boot splash: LODESTAR / NOVA / by FEAR REACTIVE instead of the MeshCore logo
+    u = patch(u, r"(  int render\(DisplayDriver& display\) override \{\n)    // meshcore logo.*?(    return 1000;\n)",
+              lambda m: m.group(1) + "    novaui::splash(display, _version_info);   // LODESTAR NOVA\n" + m.group(2), "splash screen", flags=re.S)
     # screen timeout from the profile
     u = patch(u, r"millis\(\) \+ AUTO_OFF_MILLIS", "millis() + NOVA_SCREEN_MS", "auto-off timer", count=6)
     # quiet hours: no screen wake, no sound or buzz (favourites still alert)
@@ -361,7 +367,7 @@ def main():
     print("  + src/helpers/Nova.h, src/helpers/Lodestar.h, examples/companion_radio/ui-new/NovaPages.h")
     print("  ~ examples/companion_radio/MyMesh.h        (hooks)")
     print("  ~ examples/companion_radio/MyMesh.cpp      (packet hooks, send/ack tracking, settings, dashboard link)")
-    print("  ~ examples/companion_radio/ui-new/UITask.cpp (7 new screens, quiet hours, profile screen timeout)")
+    print("  ~ examples/companion_radio/ui-new/UITask.cpp (7 new screens, splash, quiet hours, profile screen timeout)")
 
 
 if __name__ == "__main__":
