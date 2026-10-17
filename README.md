@@ -70,6 +70,10 @@ Already running MeshCore on this board? Flashing over the top usually keeps your
 
 The Bluetooth build also contains MeshCore's WiFi support, so the radio can join your WiFi and the MeshCore app can connect to it over the network (port 5000) as well as over Bluetooth. NOVA does not change that. The NOVA dashboard page still reads from the USB cable only, not over WiFi, and WiFi uses more battery.
 
+## Updating
+
+To move to a newer release, flash its `firmware.bin` (the application-only file) as an update, without any erase option. A tester updated this way and kept their settings, contacts and channels. Take a backup from the MeshCore app first anyway. Flashing `firmware-merged.bin` with an erase option, or a different board's firmware, wipes everything.
+
 ## km/h or mph
 
 Every release comes in one speed unit: releases ending in `US` use mph and releases ending in `EU` use km/h. The version name ends in `-mph` on the miles-per-hour build (shown on the NOVA info screen and in the dashboard's diagnostics). Distances are still in kilometres and metres in both. To build your own, set **units** to `mph` when you run the build workflow.
