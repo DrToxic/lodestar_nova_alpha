@@ -267,12 +267,46 @@ int main(int argc, char** argv) {
     CHECK(T.scoreTrend() == -1);
   }
 
+  // 15b. repeater names from adverts
+  {
+    auto advert = [](uint8_t* p, uint8_t k0, uint8_t type, bool latlon, const char* name, size_t* len) {
+      memset(p, 0, 400); p[0] = k0; p[1] = 0xA0; p[2] = 0xB0; p[3] = 1; p[4] = 2;
+      size_t o = 100; p[o++] = (uint8_t)(type | 0x80 | (latlon ? 0x10 : 0));
+      if (latlon) { memset(p + o, 7, 8); o += 8; }
+      size_t n = strlen(name); memcpy(p + o, name, n); *len = o + n;
+    };
+    NameBook B; uint8_t p[400]; size_t len;
+    advert(p, 0x11, 2, true, "Hill Top RPT", &len);          B.onAdvert(p, len);
+    CHECK(strcmp(B.get(p, 3), "Hill Top RPT") == 0);
+    CHECK(strcmp(B.get(p, 1), "Hill Top RPT") == 0);                                   // a one-byte hash resolves when it is unique
+    advert(p, 0x11, 2, false, "Other Site", &len);           p[1] = 0xC0; B.onAdvert(p, len);
+    uint8_t k1[3] = {0x11, 0, 0};                            CHECK(strcmp(B.get(k1, 1), "") == 0);   // two repeaters share it: no guess
+    advert(p, 0x22, 1, false, "A Chat Node", &len);          B.onAdvert(p, len);
+    uint8_t k2[3] = {0x22, 0xA0, 0xB0};                      CHECK(strcmp(B.get(k2, 3), "") == 0);   // companions are not repeaters
+    advert(p, 0x33, 2, false, "Caf\xC3\xA9 Roof Node With A Very Long Name", &len);
+    B.onAdvert(p, len);
+    uint8_t k3[3] = {0x33, 0xA0, 0xB0};
+    const char* nm = B.get(k3, 3);                           CHECK(strlen(nm) > 0 && strlen(nm) < NOVA_NAME_LEN);
+    bool utf_ok = true; for (const char* c = nm; *c; c++) { if (((uint8_t)*c & 0xC0) == 0xC0 && !c[1]) utf_ok = false; }
+    CHECK(utf_ok);
+    advert(p, 0x44, 2, false, "Quote\"Back\\slash", &len);   B.onAdvert(p, len);
+    Nova N; N.names.onAdvert(p, len);                                                     // JSON must stay valid with awkward names
+    for (int r = 0; r < 12; r++) { uint8_t kk[8] = {0x44, 0xA0, 0xB0}; N.link.onAdvert(kk, 5.0f, -90, 1000u + (uint32_t)r * 20000); }
+    static char out[6144]; N.json(out, sizeof out, 300000, 12);
+    CHECK(strstr(out, "\"name\":\"Quote?Back?slash\""));                       // quotes and backslashes are swapped for ? so the line stays valid JSON
+    advert(p, 0x55, 2, false, "", &len);                     B.onAdvert(p, len);          // an advert with an empty name changes nothing
+    uint8_t k5[3] = {0x55, 0xA0, 0xB0};                      CHECK(strcmp(B.get(k5, 3), "") == 0);
+  }
+
   // 16. worst case dashboard line still fits its buffer
   {
     Nova N; static char out[6144]; uint32_t t = 100000; int32_t lat = 30000000, lon = -97000000;
+    for (int i = 0; i < LODESTAR_MAX_UPLINKS; i++) { uint8_t ap[400]; memset(ap, 0, sizeof ap); ap[0] = (uint8_t)(i + 1); ap[1] = (uint8_t)(0xA0 + i); ap[2] = (uint8_t)(0xF0 - i); ap[100] = 0x82; memset(ap + 101, 'W', 23); N.names.onAdvert(ap, 124); }
     for (int i = 0; i < LODESTAR_MAX_UPLINKS; i++) { uint8_t k[8] = {(uint8_t)(i + 1), (uint8_t)(0xA0 + i), (uint8_t)(0xF0 - i)}; for (int r = 0; r < 12; r++) N.link.onAdvert(k, (float)(i - 12), -90 - i, t + (uint32_t)r * 20000); }
     t += 12 * 20000;
     for (int i = 0; i < 8; i++) N.deliveries.onSend((uint32_t)i + 1, true, 9000, "ABCDEFGHIJKLM", true, t);
+    { size_t n0 = N.json(out, sizeof out, t, 12); int named = 0; for (const char* q = out; (q = strstr(q, "\"name\":\"WWW")); q++) named++;
+      CHECK(named >= 6 && n0 < sizeof out - 1500); printf("eight named repeaters (%d shown) + eight deliveries: %zu bytes\n", named, n0); }   // while the repeaters are fresh
     t = drive(N, t, 6000, lat, lon, 30.0);                                                    // 180 km: track full and thinned
     for (int i = 0; i < 4000; i++, t += 10000) N.batt.update((uint16_t)(4000 - i / 10), false, t);
     N.diag.onRx(-3.5f, t);

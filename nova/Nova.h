@@ -235,6 +235,86 @@ private:
 };
 
 // ----------------------------------------------------------------------------
+// Repeater names, read from the adverts repeaters broadcast
+// ----------------------------------------------------------------------------
+#define NOVA_NAME_LEN   24
+#define NOVA_NAME_SLOTS 24
+
+class NameBook {
+public:
+  NameBook() { memset(_e, 0, sizeof(_e)); }
+
+  // Pull the display name out of an advert's app data: flags, then optional location (8),
+  // two reserved fields (2 each), then the name itself. Returns false if there is none.
+  static bool parseName(const uint8_t* ad, size_t len, char* out, size_t cap) {
+    if (len < 1 || cap < 2) return false;
+    uint8_t flags = ad[0];
+    if (!(flags & 0x80)) return false;                       // no name in this advert
+    size_t i = 1;
+    if (flags & 0x10) i += 8;
+    if (flags & 0x20) i += 2;
+    if (flags & 0x40) i += 2;
+    if (i >= len) return false;
+    size_t n = len - i;
+    if (n > cap - 1) n = cap - 1;
+    size_t o = 0;
+    for (size_t k = 0; k < n; k++) {
+      uint8_t c = ad[i + k];
+      if (c == 0) break;
+      out[o++] = (char)(c < 0x20 || c == 0x7F ? ' ' : c);
+    }
+    // never leave half of a multi-byte character at the end
+    while (o > 0 && (((uint8_t)out[o - 1]) & 0xC0) == 0x80) o--;                    // continuation bytes
+    if (o > 0 && ((uint8_t)out[o - 1]) >= 0xC0) o--;                                // an orphaned lead byte
+    while (o > 0 && out[o - 1] == ' ') o--;
+    out[o] = 0;
+    return o > 0;
+  }
+
+  // A full advert payload: public key (32), timestamp (4), signature (64), app data.
+  // Only repeaters (low nibble of the flags = 2) are kept.
+  void onAdvert(const uint8_t* payload, size_t payload_len) {
+    const size_t off = 32 + 4 + 64;
+    if (payload_len <= off + 1) return;
+    if ((payload[off] & 0x0F) != 2) return;
+    char nm[NOVA_NAME_LEN];
+    if (!parseName(payload + off, payload_len - off, nm, sizeof(nm))) return;
+    int slot = -1;
+    for (int i = 0; i < NOVA_NAME_SLOTS; i++) if (_e[i].used && memcmp(_e[i].key, payload, 3) == 0 && same(_e[i], payload)) { slot = i; break; }
+    if (slot < 0) {
+      for (int i = 0; i < NOVA_NAME_SLOTS; i++) {
+        if (!_e[i].used) { slot = i; break; }
+        if (slot < 0 || _e[i].seq < _e[slot].seq) slot = i;
+      }
+    }
+    Entry& e = _e[slot];
+    e.used = true; memcpy(e.key, payload, 3); memcpy(e.full, payload + 3, 5);
+    strncpy(e.name, nm, sizeof(e.name) - 1); e.name[sizeof(e.name) - 1] = 0;
+    e.seq = ++_seq;
+  }
+
+  // The name for a repeater known by the first `key_len` bytes of its key. With a short key
+  // that two repeaters share, there is no honest answer, so none is given.
+  const char* get(const uint8_t* key, uint8_t key_len) const {
+    if (key_len == 0) return "";
+    const Entry* found = nullptr;
+    for (int i = 0; i < NOVA_NAME_SLOTS; i++) {
+      const Entry& e = _e[i];
+      if (!e.used || memcmp(e.key, key, key_len > 3 ? 3 : key_len) != 0) continue;
+      if (found && strcmp(found->name, e.name) != 0) return "";
+      found = &e;
+    }
+    return found ? found->name : "";
+  }
+
+private:
+  struct Entry { bool used; uint8_t key[3]; uint8_t full[5]; char name[NOVA_NAME_LEN]; uint32_t seq; };
+  static bool same(const Entry& e, const uint8_t* payload) { return memcmp(e.full, payload + 3, 5) == 0; }
+  Entry _e[NOVA_NAME_SLOTS];
+  uint32_t _seq = 0;
+};
+
+// ----------------------------------------------------------------------------
 // Range check
 // ----------------------------------------------------------------------------
 enum RangeVerdict : uint8_t { RANGE_NONE = 0, RANGE_WEAK = 1, RANGE_OK = 2, RANGE_GOOD = 3 };
@@ -451,6 +531,7 @@ public:
   Trip         trip;
   Battery      batt;
   Diag         diag;
+  NameBook     names;
 
   bool     settings_dirty = false;      // the glue saves the settings when this is set, then clears it
   uint32_t dash_until_ms = 0;           // dashboard stream runs while now < this (see `nova hello`)
@@ -634,8 +715,11 @@ public:
       if (u.key_len >= 3) snprintf(id, sizeof(id), "%02X%02X%02X", u.key[0], u.key[1], u.key[2]);
       else if (u.key_len == 2) snprintf(id, sizeof(id), "%02X%02X", u.key[0], u.key[1]);
       else snprintf(id, sizeof(id), "%02X", u.key[0]);
-      j.f("%s{\"id\":\"%s\",\"best\":%d,\"sc\":%d,\"rel\":%d,\"lq\":%d,\"snr\":%.1f,\"rssi\":%d,\"age\":%lu,\"hit\":%lu,\"n\":%lu}",
-          shown ? "," : "", id, bi == link.best() ? 1 : 0, pc(link.scoreOf(bi, now)), pc(link.reliability(bi, now)), pc(link.linkQuality(bi)),
+      j.f("%s{\"id\":\"%s\",\"name\":\"",
+          shown ? "," : "", id);
+      j.esc(names.get(u.key, u.key_len));
+      j.f("\",\"best\":%d,\"sc\":%d,\"rel\":%d,\"lq\":%d,\"snr\":%.1f,\"rssi\":%d,\"age\":%lu,\"hit\":%lu,\"n\":%lu}",
+          bi == link.best() ? 1 : 0, pc(link.scoreOf(bi, now)), pc(link.reliability(bi, now)), pc(link.linkQuality(bi)),
           (double)u.snr, (int)u.rssi, (unsigned long)(elapsed(now, u.last_ms) / 1000u), (unsigned long)u.hits, (unsigned long)(u.hits + u.misses));
       shown++;
     }

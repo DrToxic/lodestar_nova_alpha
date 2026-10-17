@@ -48,6 +48,7 @@ void MyMesh::logRx(mesh::Packet* pkt, int len, float score) {
   uint32_t nv_now = millis();
   nova_core.diag.onRx(pkt->getSNR(), nv_now);
   nova_core.link.cfg.sf = _prefs.sf;
+  if (pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT) nova_core.names.onAdvert(pkt->payload, pkt->payload_len);   // repeater names
   uint8_t nv_n = pkt->getPathHashCount();
   uint8_t nv_sz = pkt->getPathHashSize();
   if (nv_n * nv_sz > MAX_PATH_SIZE) return;

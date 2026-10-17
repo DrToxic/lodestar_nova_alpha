@@ -102,8 +102,10 @@ th { text-align: left; font: 500 13px var(--font); color: var(--muted); padding:
 td { padding: 7px 8px 7px 0; border-top: 1px solid var(--grid); white-space: nowrap; }
 th.r, td.r { text-align: right; }
 .tw { overflow-x: auto; }
+.nm { max-width: 190px; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.dim { color: var(--muted); }
 .id { font: 600 15px var(--font-d); letter-spacing: .02em; }
-.bar-track { width: 90px; height: 8px; background: var(--grid); border-radius: 4px; display: inline-block; vertical-align: middle; margin-right: 8px; }
+.bar-track { width: 60px; height: 8px; background: var(--grid); border-radius: 4px; display: inline-block; vertical-align: middle; margin-right: 8px; }
 .bar-fill { display: block; height: 8px; border-radius: 4px; background: var(--s1); }
 tr.best .id::before { content: "\2605  "; color: var(--s1); }
 
@@ -197,7 +199,7 @@ details summary { cursor: pointer; font-weight: 500; color: var(--ink2); }
       <section class="panel">
         <h2>Repeaters this radio hears <span class="note" id="linkNote"></span></h2>
         <div class="tw"><table id="tbl">
-          <thead><tr><th>Repeater</th><th>Score</th><th class="r">Reliability</th><th class="r">Link</th><th class="r">SNR</th><th class="r">RSSI</th><th class="r">Last heard</th><th class="r">Acks</th></tr></thead>
+          <thead><tr><th>Repeater</th><th>Name</th><th>Score</th><th class="r">Reliability</th><th class="r">Link</th><th class="r">SNR</th><th class="r">RSSI</th><th class="r">Last heard</th><th class="r">Acks</th></tr></thead>
           <tbody id="tblBody"></tbody>
         </table></div>
         <p class="empty" id="tblEmpty">Nothing heard yet. Match your radio settings to the local mesh and give it a few minutes.</p>
@@ -363,6 +365,7 @@ function renderLinks(links) {
   $("tblEmpty").hidden = links.length > 0;
   $("linkNote").textContent = links.length ? "strongest first" : "";
   $("tblBody").innerHTML = links.map((l) => '<tr class="' + (l.best ? "best" : "") + '"><td><span class="id">' + esc(l.id) + '</span></td>' +
+    '<td class="nm">' + (l.name ? esc(l.name) : '<span class="dim">unknown</span>') + '</td>' +
     '<td><span class="bar-track"><span class="bar-fill" style="width:' + l.sc + '%"></span></span>' + l.sc + '</td>' +
     '<td class="r">' + l.rel + '</td><td class="r">' + l.lq + '</td><td class="r">' + l.snr.toFixed(1) + ' dB</td><td class="r">' + l.rssi + '</td>' +
     '<td class="r">' + fmtAge(l.age) + ' ago</td><td class="r">' + (l.n ? l.hit + "/" + l.n : "–") + '</td></tr>').join("");
@@ -558,7 +561,8 @@ function demoFrame(D) {
   if (n % 6 === 0) D.track.push([+D.lat.toFixed(6), +D.lon.toFixed(6)]);
   if (D.track.length > 60) D.track = D.track.filter((_, i) => i % 2 === 0);
   const inCov = Math.sin(n / 55) > -0.35;
-  const mk = (id, base, snr) => ({ id, sc: Math.max(0, Math.round(base + 6 * Math.sin(n / 7 + id.length))), rel: Math.round(base + 8), lq: Math.round(base + 10), snr: +(snr + Math.sin(n / 5)).toFixed(1), rssi: Math.round(-118 + base * 0.4), age: (n * 7) % 40, hit: 9 + (n % 3), n: 14, best: 0 });
+  const DEMO_NAMES = { A1B2C3: "Hilltop Repeater", "3F": "Water Tower", "7C19E0": "Fire Station 4" };
+  const mk = (id, base, snr) => ({ id, name: DEMO_NAMES[id] || "", sc: Math.max(0, Math.round(base + 6 * Math.sin(n / 7 + id.length))), rel: Math.round(base + 8), lq: Math.round(base + 10), snr: +(snr + Math.sin(n / 5)).toFixed(1), rssi: Math.round(-118 + base * 0.4), age: (n * 7) % 40, hit: 9 + (n % 3), n: 14, best: 0 });
   let links = inCov ? [mk("A1B2C3", 72 + 8 * Math.sin(n / 30), 8), mk("3F", 55, 2), mk("7C19E0", 38, -5), mk("D4", 22, -11)] : [mk("D4", 18, -13)];
   links.sort((a, b) => b.sc - a.sc); if (links[0].sc >= 30) links[0].best = 1;
   if (inCov) D.cov = { lat: D.lat, lon: D.lon };
