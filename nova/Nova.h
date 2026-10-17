@@ -189,7 +189,10 @@ public:
       Delivery& d = _d[i];
       if (!d.used || d.state == D_DELIVERED || d.state == D_FAILED) continue;
       if (d.chan && d.state == D_REPEATED) continue;            // a repeater has it: as far as a channel message goes, done
-      if (elapsed(now, d.sent_ms) > d.timeout_ms + 2000u) { d.state = D_FAILED; stats.failed++; }
+      // A direct message's acknowledgement can take far longer than the firmware's estimate on a busy mesh
+      // (a real log showed one arriving after 18 s), so give those much longer before calling them failed.
+      uint32_t limit = d.chan ? d.timeout_ms + 2000u : (d.timeout_ms * 2u + 2000u > 30000u ? d.timeout_ms * 2u + 2000u : 30000u);
+      if (elapsed(now, d.sent_ms) > limit) { d.state = D_FAILED; stats.failed++; }
     }
   }
 

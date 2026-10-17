@@ -93,9 +93,11 @@ int main(int argc, char** argv) {
     L.onTxText(h, 1100);
     L.onHeard(h2, 0x11);                                     CHECK(L.newest(0)->state == D_SENT);           // someone else's packet
     L.loop(5000);                                            CHECK(L.newest(0)->state == D_SENT);           // not yet (timeout 5s + 2s grace)
-    L.loop(9000);                                            CHECK(L.newest(0)->state == D_FAILED && L.stats.failed == 1);
-    char line[40]; DeliveryLog::line(*L.newest(0), 9000, line, sizeof line);   CHECK(strstr(line, "FAILED") && strstr(line, "no link"));
-    L.onAck(222, 12000);                                     CHECK(L.newest(0)->state == D_DELIVERED && L.stats.failed == 0 && L.stats.delivered == 1);   // it did arrive
+    L.loop(9000);                                            CHECK(L.newest(0)->state == D_SENT);           // a slow mesh: an ack 18 s later is normal
+    L.loop(20000);                                           CHECK(L.newest(0)->state == D_SENT);
+    L.loop(32000);                                           CHECK(L.newest(0)->state == D_FAILED && L.stats.failed == 1);   // direct messages get at least 30 s
+    char line[40]; DeliveryLog::line(*L.newest(0), 32000, line, sizeof line);   CHECK(strstr(line, "FAILED") && strstr(line, "no link"));
+    L.onAck(222, 36000);                                     CHECK(L.newest(0)->state == D_DELIVERED && L.stats.failed == 0 && L.stats.delivered == 1);   // it did arrive
     L.onSend(333, false, 5000, "Cy", true, 20000);           L.onTxText(h, 20100);
     CHECK(L.newest(0)->state == D_SENT && !L.newest(0)->hash_set);                                          // a direct send has no echo to bind
     L.onSend(1, true, 100, "Fast", true, 0);                 CHECK(L.newest(0)->timeout_ms >= 3000);        // timeout never absurdly short
