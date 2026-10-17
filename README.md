@@ -63,12 +63,16 @@ Already running MeshCore on this board? Flashing over the top usually keeps your
 
 | Build | Phone connection | USB cable | Use it when |
 | --- | --- | --- | --- |
-| `heltec_v4_companion_radio_ble` | Bluetooth only (no WiFi) | Free, so the **dashboard works** | Almost always |
+| `heltec_v4_companion_radio_ble` | Bluetooth, and WiFi if you set it up (see below) | Free, so the **dashboard works** | Almost always |
 | `heltec_v4_companion_radio_usb` | USB cable | Carries the phone-app link, so **no dashboard** | The app on a computer over USB |
+
+## WiFi
+
+The Bluetooth build also contains MeshCore's WiFi support, so the radio can join your WiFi and the MeshCore app can connect to it over the network (port 5000) as well as over Bluetooth. NOVA does not change that. The NOVA dashboard page still reads from the USB cable only, not over WiFi, and WiFi uses more battery.
 
 ## km/h or mph
 
-Every release comes in one speed unit. The version name ends in `-mph` on the miles-per-hour build (shown on the NOVA info screen and in the dashboard's diagnostics). Distances are still in kilometres and metres in both. To build your own, set **units** to `mph` when you run the build workflow.
+Every release comes in one speed unit: releases ending in `US` use mph and releases ending in `EU` use km/h. The version name ends in `-mph` on the miles-per-hour build (shown on the NOVA info screen and in the dashboard's diagnostics). Distances are still in kilometres and metres in both. To build your own, set **units** to `mph` when you run the build workflow.
 
 ## The dashboard
 
