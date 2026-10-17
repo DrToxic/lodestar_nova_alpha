@@ -67,7 +67,7 @@ int main() {
     t = drive(N, t, 120, lat, lon, 25.0);
     N.deliveries.onSend(1, true, 9000, "Bob", true, t - 20000); N.deliveries.onAck(1, t - 15000);
     N.deliveries.onSend(2, true, 9000, "Anastasia Long", true, t - 10000); uint8_t h[8] = {1,2,3,4,5,6,7,8}; N.deliveries.onTxText(h, t - 9000); N.deliveries.onHeard(h, 0x3F);
-    N.deliveries.onSend(3, true, 3000, "Cy", false, t - 30000); N.deliveries.loop(t);
+    N.deliveries.onSend(3, true, 3000, "Cy", false, t - 40000); N.deliveries.loop(t);
     for (int i = 0; i < 400; i++) N.batt.update((uint16_t)(4100 - i), false, t + (uint32_t)i * 150000u);
     Mock m; pageLink(m, N, t);              CHECK(m.has("UPLINK A1B2C3") && m.has("*A1B2C3") && m.has("heard 4"));
     Mock m2; pageSent(m2, N, t);            CHECK(m2.has("Bob") && m2.has("FAILED") && m2.has("heard by 3F"));
