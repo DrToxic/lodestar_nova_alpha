@@ -333,7 +333,7 @@ function render() {
     $("rUp").innerHTML = "None";
     $("rUpSub").textContent = links.length ? "No repeater is good enough yet (" + links.length + " heard)" : "Nothing heard yet";
   }
-  if (g.fix) { $("rSpd").innerHTML = g.spd + '<span class="u">' + (f.unit || "km/h") + '</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + g.course + "°" : "") + ", " + g.sats + " satellites"; }
+  if (g.fix) { $("rSpd").innerHTML = (g.spd != null ? g.spd : g.kmh) + '<span class="u">' + (f.unit || "km/h") + '</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + g.course + "°" : "") + ", " + g.sats + " satellites"; }
   else { $("rSpd").innerHTML = "&ndash;"; $("rSpdSub").textContent = "No GPS fix. Turn GPS on from the phone app or the GPS screen."; }
   if (b.pct != null && b.pct >= 0) {
     $("rBat").innerHTML = b.pct + '<span class="u">%</span>';
