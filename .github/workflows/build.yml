@@ -115,7 +115,7 @@ jobs:
           REPLACE: ${{ inputs.replace_files }}
         run: |
           if [ -z "$TAG" ]; then
-            echo "::error::Publishing needs a release tag. Type a NEW one, for example v0.1.0-alpha."
+            echo "::error::Publishing needs a release tag. Type a NEW one, for example v0.1.0-beta."
             exit 1
           fi
           # A release with this tag may already exist (made by hand, on the Releases page). If it has
@@ -177,13 +177,13 @@ jobs:
           UNITS: ${{ inputs.units }}
         run: |
           BIN="MeshCore/.pio/build/$FW_ENV/firmware.elf"
-          if [ "$UNITS" = "mph" ]; then WANT="0.1.0-alpha-mph"; else WANT="0.1.0-alpha"; fi
+          if [ "$UNITS" = "mph" ]; then WANT="0.1.0-beta-mph"; else WANT="0.1.0-beta"; fi
           strings -n 8 "$BIN" | grep -F "$WANT" | head -3
           if [ "$UNITS" = "mph" ]; then
-            strings -n 8 "$BIN" | grep -q -F "0.1.0-alpha-mph" || { echo "::error::The mph flag did not reach the build."; exit 1; }
+            strings -n 8 "$BIN" | grep -q -F "0.1.0-beta-mph" || { echo "::error::The mph flag did not reach the build."; exit 1; }
           else
-            if strings -n 8 "$BIN" | grep -q -F "0.1.0-alpha-mph"; then echo "::error::A metric build contains the mph marker."; exit 1; fi
-            strings -n 8 "$BIN" | grep -q -F "0.1.0-alpha" || { echo "::error::The version marker is missing."; exit 1; }
+            if strings -n 8 "$BIN" | grep -q -F "0.1.0-beta-mph"; then echo "::error::A metric build contains the mph marker."; exit 1; fi
+            strings -n 8 "$BIN" | grep -q -F "0.1.0-beta" || { echo "::error::The version marker is missing."; exit 1; }
           fi
 
       - name: Collect files
@@ -226,7 +226,7 @@ jobs:
               HOW="Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install."
               FILES="out/firmware-merged.bin out/firmware.bin out/dashboard.html" ;;
           esac
-          NOTES="LODESTAR NOVA companion firmware for $BOARD, by FEAR REACTIVE. Alpha test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
+          NOTES="LODESTAR NOVA companion firmware for $BOARD, by FEAR REACTIVE. Beta test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
 
           $HOW dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           if gh release view "$TAG" >/dev/null 2>&1; then

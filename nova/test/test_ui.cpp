@@ -50,7 +50,7 @@ int main() {
     Mock m5; pageBack(m5, N, now, false);   CHECK(m5.has("needs GPS"));
     Mock m6; pageBack(m6, N, now, true);    CHECK(m6.has("waiting for a GPS fix"));
     Mock m7; pageBatt(m7, N, now);          CHECK(m7.has("no reading"));
-    Mock m8; pageSettings(m8, N, now, 0);   CHECK(m8.has("NOVA 0.1.0-alpha") && m8.has("profile car"));
+    Mock m8; pageSettings(m8, N, now, 0);   CHECK(m8.has("NOVA 0.1.0-beta") && m8.has("profile car"));
     Mock m9; pageQuiet(m9, N, -1); CHECK(m9.has("OFF") && m9.bad == 0);
     N.cfg.quiet_on = true; N.cfg.quiet_start = 22; N.cfg.quiet_end = 7;
     Mock m10; pageQuiet(m10, N, 23); CHECK(m10.has("ON  22:00 to 07:00") && m10.has("quiet right now") && m10.bad == 0);
