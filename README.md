@@ -1,8 +1,8 @@
 # LODESTAR NOVA
 
-### A smarter MeshCore companion for the Heltec V4 R2, by FEAR REACTIVE
+### A smarter MeshCore companion for the Heltec V4 R2 and the XIAO nRF52840, by FEAR REACTIVE
 
-**Version v0.1.0-alpha** (alpha test release, **Heltec WiFi LoRa 32 V4 R2 only**)
+**Version v0.1.0-alpha** (alpha test release). **Boards:** Heltec WiFi LoRa 32 **V4 R2** (with screen) and Seeed Studio **XIAO nRF52840 + Wio-SX1262** (no screen). See [supported boards](#supported-boards).
 
 The stock MeshCore companion firmware connects your phone to the mesh and shows a few status screens. NOVA keeps all of that and answers the questions you actually have while you are out with a radio: *Can I reach anyone from here? Did my message get through, and who carried it? How far back was the last place I had coverage? How long will the battery last?*
 
@@ -17,6 +17,15 @@ It is the companion sibling of [LODESTAR](https://github.com/propertymonitor-web
 > **Hardware check before you flash.** Heltec sells the V4 in two versions: **V4 R2** (ESP32-S3R2, 2 MB PSRAM) and **V4-R8** (ESP32-S3R8, 8 MB PSRAM). **This firmware is for the R2 only.** The two boards use different pins for GPS, the LED and external power (Heltec lists the differences on its [V4 product page](https://heltec.org/project/wifi-lora-32-v4/)), so an R2 image on an R8 can leave the GPS unpowered or misbehave. **Never power the radio without an antenna.**
 
 > **Status: alpha.** The firmware builds for the V4, and the logic, the screen layouts and the dashboard data are covered by automated tests that run on every push. It has **not yet been run on a real board by its author**, so expect rough edges and please report them. See [what to test](#test-checklist).
+
+## Supported boards
+
+| Board | Build | Screen | Flash with |
+|---|---|---|---|
+| Heltec WiFi LoRa 32 **V4 R2** | `heltec_v4_companion_radio_ble` | 128x64 OLED, all the NOVA screens | `firmware-merged.bin` at flasher.meshcore.io |
+| Seeed Studio **XIAO nRF52840 + Wio-SX1262 kit** | `Xiao_nrf52_companion_radio_ble` | None: **use the dashboard** | `firmware.uf2` dragged onto the board's USB drive |
+
+**On the XIAO nRF52840 (alpha, not yet run on a real board by the author):** it has no screen, so the OLED pages, the quiet-hours page and the button controls do not exist. Everything else works: delivery tracking (including channel messages), link health, battery, the trip log and range data are all collected, and the **dashboard** shows them over the USB cable exactly as on the Heltec (open it, click Connect radio, pick the board's port). Profiles and quiet hours are set from the dashboard's buttons. GPS is not enabled by MeshCore on this board, so trip, speed and the back-to-coverage marker stay empty. Quiet hours only affect the screen and buzzer in the Heltec build, so they do nothing here. To flash: plug it in, **double-tap the reset button** quickly so a USB drive appears, then drag `firmware.uf2` onto it; the board restarts by itself. Updating the same way keeps your settings and contacts (take a backup first anyway). Use the **Bluetooth** build: the USB build uses the cable for the phone app, which leaves no cable for the dashboard.
 
 ## What you get
 
