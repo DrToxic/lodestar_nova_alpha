@@ -219,7 +219,7 @@ static inline void pageBatt(DisplayDriver& d, nova::Nova& N, uint32_t now) {
 static inline void pageSettings(DisplayDriver& d, nova::Nova& N, uint32_t now, uint32_t free_heap) {
   d.setTextSize(1); d.setColor(UIColor::primary_txt);
   char b[48];
-  snprintf(b, sizeof(b), "NOVA %s", NOVA_VERSION); row(d, 0, b);
+  snprintf(b, sizeof(b), NOVA_PRODUCT " %s", NOVA_VERSION); row(d, 0, b);
   snprintf(b, sizeof(b), "profile %s (" NOVA_HOLD ")", nova::profileParams(N.cfg.profile).name); row(d, 1, b);
   if (N.cfg.quiet_on) snprintf(b, sizeof(b), "quiet %02d-%02d (next page)", N.cfg.quiet_start, N.cfg.quiet_end);
   else snprintf(b, sizeof(b), "quiet off (next page)");
@@ -251,7 +251,7 @@ static inline void splash(DisplayDriver& d, const char* meshcore_version) {
   int mid = d.width() / 2;
   d.setColor(UIColor::corp_blue); d.setTextSize(2);
   d.drawTextCentered(mid, 2, "LODESTAR");
-  d.drawTextCentered(mid, 19, "NOVA");
+  d.drawTextCentered(mid, 19, NOVA_PRODUCT);
   d.setColor(UIColor::primary_txt); d.setTextSize(1);
   d.drawTextCentered(mid, 40, "by FEAR REACTIVE");
   char b[32]; snprintf(b, sizeof(b), "MeshCore %.12s", meshcore_version);

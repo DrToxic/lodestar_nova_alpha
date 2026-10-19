@@ -30,6 +30,14 @@ on:
         options:
           - metric
           - mph
+      edition:
+        description: "nova = the normal companion. orion = LODESTAR ORION, the wardriving edition (same firmware, ORION name, needs a GPS to be useful)"
+        default: nova
+        required: true
+        type: choice
+        options:
+          - nova
+          - orion
       publish:
         description: "Publish the result as a GitHub Release anyone can download"
         default: false
@@ -62,6 +70,10 @@ jobs:
           ./nova_test sample.json
           g++ -std=c++17 -Wall -Wextra -DNOVA_MPH=1 -Ilodestar -Inova nova/test/test_nova.cpp -o nova_test_mph
           ./nova_test_mph
+          g++ -std=c++17 -Wall -Wextra -DNOVA_ORION=1 -Ilodestar -Inova nova/test/test_nova.cpp -o nova_test_orion
+          ./nova_test_orion
+          g++ -std=c++17 -Wall -Wextra -DNOVA_ORION=1 -DNOVA_MPH=1 -Ilodestar -Inova nova/test/test_nova.cpp -o nova_test_orion_mph
+          ./nova_test_orion_mph
 
       - name: The dashboard line is real JSON
         run: |
@@ -152,7 +164,7 @@ jobs:
         working-directory: MeshCore
         env:
           FW_ENV: ${{ inputs.env }}
-          PLATFORMIO_BUILD_FLAGS: ${{ inputs.units == 'mph' && '-DNOVA_MPH=1' || '' }}
+          PLATFORMIO_BUILD_FLAGS: ${{ inputs.units == 'mph' && '-DNOVA_MPH=1' || '' }} ${{ inputs.edition == 'orion' && '-DNOVA_ORION=1' || '' }}
         run: |
           set -o pipefail
           case "$FW_ENV" in
@@ -175,16 +187,18 @@ jobs:
         env:
           FW_ENV: ${{ inputs.env }}
           UNITS: ${{ inputs.units }}
+          EDITION: ${{ inputs.edition }}
         run: |
           BIN="MeshCore/.pio/build/$FW_ENV/firmware.elf"
-          if [ "$UNITS" = "mph" ]; then WANT="0.1.0-beta-mph"; else WANT="0.1.0-beta"; fi
+          SFX=""; [ "$EDITION" = "orion" ] && SFX="-orion"
+          if [ "$UNITS" = "mph" ]; then WANT="0.1.0-beta$SFX-mph"; else WANT="0.1.0-beta$SFX"; fi
           strings -n 8 "$BIN" | grep -F "$WANT" | head -3
-          if [ "$UNITS" = "mph" ]; then
-            strings -n 8 "$BIN" | grep -q -F "0.1.0-beta-mph" || { echo "::error::The mph flag did not reach the build."; exit 1; }
-          else
-            if strings -n 8 "$BIN" | grep -q -F "0.1.0-beta-mph"; then echo "::error::A metric build contains the mph marker."; exit 1; fi
-            strings -n 8 "$BIN" | grep -q -F "0.1.0-beta" || { echo "::error::The version marker is missing."; exit 1; }
-          fi
+          strings -n 8 "$BIN" | grep -q -x -F "$WANT" || { echo "::error::The version marker $WANT is missing from the build."; exit 1; }
+          # the wrong variants must not be in there
+          if [ "$UNITS" = "mph" ]; then WRONGU="0.1.0-beta$SFX"; else WRONGU="0.1.0-beta$SFX-mph"; fi
+          if strings -n 8 "$BIN" | grep -q -x -F "$WRONGU"; then echo "::error::The build contains the other speed unit's marker ($WRONGU)."; exit 1; fi
+          if [ "$EDITION" = "orion" ]; then OTHER="0.1.0-beta"; [ "$UNITS" = "mph" ] && OTHER="0.1.0-beta-mph"; else OTHER="0.1.0-beta-orion"; [ "$UNITS" = "mph" ] && OTHER="0.1.0-beta-orion-mph"; fi
+          if strings -n 8 "$BIN" | grep -q -x -F "$OTHER"; then echo "::error::The build contains the other edition's marker ($OTHER)."; exit 1; fi
 
       - name: Collect files
         env:
@@ -214,7 +228,9 @@ jobs:
           TAG: ${{ inputs.release_tag }}
           FW_ENV: ${{ inputs.env }}
           UNITS: ${{ inputs.units == 'mph' && 'mph' || 'km/h' }}
+          EDITION: ${{ inputs.edition }}
         run: |
+          if [ "$EDITION" = "orion" ]; then PRODUCT="LODESTAR ORION"; WHAT="wardriving edition of LODESTAR NOVA: it logs every repeater and companion it hears, with locations, for the dashboard map and CSV/GeoJSON/GPX downloads. It needs a GPS to place what it hears (the Heltec V4 with a GNSS module)"; else PRODUCT="LODESTAR NOVA"; WHAT="companion firmware"; fi
           MC=$(cut -c1-10 out/meshcore_commit.txt)
           case "$FW_ENV" in
             *nrf52*)
@@ -226,7 +242,7 @@ jobs:
               HOW="Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install."
               FILES="out/firmware-merged.bin out/firmware.bin out/dashboard.html" ;;
           esac
-          NOTES="LODESTAR NOVA companion firmware for $BOARD, by FEAR REACTIVE. Beta test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
+          NOTES="$PRODUCT $WHAT for $BOARD, by FEAR REACTIVE. Beta test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
 
           $HOW dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -235,5 +251,5 @@ jobs:
             if [ "$UNITS" = "mph" ]; then gh release edit "$TAG" --notes "$NOTES"; fi
           else
             gh release create "$TAG" $FILES \
-              --target "$GITHUB_SHA" --title "LODESTAR NOVA $TAG" --notes "$NOTES" --prerelease
+              --target "$GITHUB_SHA" --title "$PRODUCT $TAG" --notes "$NOTES" --prerelease
           fi

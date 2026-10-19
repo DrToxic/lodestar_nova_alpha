@@ -48,7 +48,12 @@ void MyMesh::logRx(mesh::Packet* pkt, int len, float score) {
   uint32_t nv_now = millis();
   nova_core.diag.onRx(pkt->getSNR(), nv_now);
   nova_core.link.cfg.sf = _prefs.sf;
-  if (pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT) nova_core.names.onAdvert(pkt->payload, pkt->payload_len);   // repeater names
+  if (pkt->getPayloadType() == PAYLOAD_TYPE_ADVERT) {
+    nova_core.names.onAdvert(pkt->payload, pkt->payload_len);   // repeater names
+    const lodestar::Position& nv_pos = nova_core.link.position();   // wardriving log: who we heard, and where we were
+    nova_core.found.onAdvert(pkt->payload, pkt->payload_len, pkt->getPathHashCount(), pkt->getSNR(), (int)_radio->getLastRSSI(),
+                             nova_core.link.hasFix(nv_now), nv_pos.lat_e6, nv_pos.lon_e6, nv_now);
+  }
   uint8_t nv_n = pkt->getPathHashCount();
   uint8_t nv_sz = pkt->getPathHashSize();
   if (nv_n * nv_sz > MAX_PATH_SIZE) return;
@@ -128,7 +133,7 @@ void MyMesh::novaTick(uint32_t nv_now) {
 #ifndef ENABLE_USB_INTERFACE
   // The USB port is free in this build (the phone talks over Bluetooth), so the dashboard
   // page uses it. Lines starting with "nova" are commands; while a page keeps saying
-  // "nova hello" the node sends one JSON line every 2 seconds. Nothing is sent otherwise.
+  // "nova hello" the node sends one JSON line every second. Nothing is sent otherwise.
   if (_cli_rescue) return;
   static char nv_line[96];
   static size_t nv_len = 0;
@@ -147,13 +152,23 @@ void MyMesh::novaTick(uint32_t nv_now) {
     Serial.print("# ");
     Serial.println(nv_reply);
   }
+  static bool nv_was_on = false;
+  if (nova_core.dash_on && !nv_was_on) nova_core.found.markAllDirty();   // a page just connected: send it everything found so far
+  nv_was_on = nova_core.dash_on;
   if (nova_core.dash_on && (int32_t)(nv_now - nv_next_json) >= 0) {
-    nv_next_json = nv_now + 2000u;
+    nv_next_json = nv_now + 1000u;
     static char nv_json[6144];
     int nv_hour = nova::Nova::localHour(getRTCClock()->getCurrentTime(), _prefs.tz_offset);
     size_t nv_n = nova_core.json(nv_json, sizeof(nv_json), nv_now, nv_hour);
     if (nv_n > 0) {
       Serial.write((const uint8_t*)nv_json, nv_n);
+      Serial.write('\n');
+    }
+    static char nv_found[320];   // newly found or improved nodes, a few per second
+    for (int nv_i = 0; nv_i < 6; nv_i++) {
+      size_t nv_m = nova_core.found.nextLine(nv_found, sizeof(nv_found), nv_now);
+      if (nv_m == 0) break;
+      Serial.write((const uint8_t*)nv_found, nv_m);
       Serial.write('\n');
     }
   }

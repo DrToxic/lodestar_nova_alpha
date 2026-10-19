@@ -50,8 +50,8 @@ int main(int argc, char** argv) {
     a.runCommand("quiet 5-5", r, sizeof r, 0, 12);         CHECK(strncmp(r, "Err", 3) == 0 && !a.cfg.quiet_on && !a.settings_dirty);
     a.runCommand("quiet 25-3", r, sizeof r, 0, 12);        CHECK(strncmp(r, "Err", 3) == 0 && !a.cfg.quiet_on);
     a.runCommand("quiet abc", r, sizeof r, 0, 12);         CHECK(strncmp(r, "Err", 3) == 0 && !a.cfg.quiet_on);
-    a.runCommand("status", r, sizeof r, 0, 12);            CHECK(strstr(r, "NOVA") && !a.settings_dirty);
-    a.runCommand("", r, sizeof r, 0, 12);                  CHECK(strstr(r, "NOVA"));
+    a.runCommand("status", r, sizeof r, 0, 12);            CHECK(strstr(r, NOVA_PRODUCT) && !a.settings_dirty);
+    a.runCommand("", r, sizeof r, 0, 12);                  CHECK(strstr(r, NOVA_PRODUCT));
     a.runCommand("wat", r, sizeof r, 0, 12);               CHECK(strstr(r, "nova ["));
     a.runCommand("quiet 22-7", r, sizeof r, 0, 12);        a.settings_dirty = false;
     a.runCommand("quiet off", r, sizeof r, 0, 12);         CHECK(!a.cfg.quiet_on && a.settings_dirty);
@@ -296,6 +296,56 @@ int main(int argc, char** argv) {
     CHECK(strstr(out, "\"name\":\"Quote?Back?slash\""));                       // quotes and backslashes are swapped for ? so the line stays valid JSON
     advert(p, 0x55, 2, false, "", &len);                     B.onAdvert(p, len);          // an advert with an empty name changes nothing
     uint8_t k5[3] = {0x55, 0xA0, 0xB0};                      CHECK(strcmp(B.get(k5, 3), "") == 0);
+  }
+
+  // 15c. found nodes (the wardriving log)
+  {
+    auto adv = [](uint8_t* p, uint8_t k0, uint8_t type, int32_t lat, int32_t lon, const char* name, size_t* len) {
+      memset(p, 0, 400); p[0] = k0; p[1] = 0xA0; p[2] = 0xB0; p[3] = 0xC0; p[4] = 0xD0; p[5] = 0xE0;
+      size_t o = 100; bool ll = lat != 0 || lon != 0; p[o++] = (uint8_t)(type | 0x80 | (ll ? 0x10 : 0));
+      if (ll) { for (int i = 0; i < 4; i++) { p[o + i] = (uint8_t)((uint32_t)lat >> (8 * i)); p[o + 4 + i] = (uint8_t)((uint32_t)lon >> (8 * i)); } o += 8; }
+      size_t n = strlen(name); memcpy(p + o, name, n); *len = o + n;
+    };
+    FoundBook F; uint8_t p[400]; size_t len; char line[320];
+    CHECK(F.count() == 0 && F.nextLine(line, sizeof line, 1000) == 0);
+    adv(p, 0x01, 2, 30267200, -97743100, "Hill RPT", &len);
+    CHECK(F.onAdvert(p, len, 0, 6.5f, -95, true, 30270000, -97740000, 10000));                  // new repeater with its own location
+    adv(p, 0x02, 1, 0, 0, "Sam's phone", &len);
+    CHECK(F.onAdvert(p, len, 2, -3.0f, -110, false, 0, 0, 11000));                              // companion, no location, no GPS fix
+    CHECK(F.count() == 2 && F.count(NODE_REPEATER) == 1 && F.count(NODE_COMPANION) == 1 && F.dirtyCount() == 2);
+    CHECK(F.nextLine(line, sizeof line, 20000) > 0);
+    CHECK(strstr(line, "\"t\":2") && strstr(line, "\"n\":\"Hill RPT\"") && strstr(line, "\"alat\":30.267200,\"alon\":-97.743100"));
+    CHECK(strstr(line, "\"hlat\":30.270000,\"hlon\":-97.740000") && strstr(line, "\"hop\":0") && strstr(line, "\"sn\":6.5"));
+    CHECK(strstr(line, "\"ago\":10") && strstr(line, "\"first\":10"));
+    CHECK(F.nextLine(line, sizeof line, 20000) > 0);
+    CHECK(strstr(line, "\"t\":1") && strstr(line, "alat") == nullptr && strstr(line, "hlat") == nullptr && strstr(line, "\"hop\":2"));   // nothing is invented
+    CHECK(F.nextLine(line, sizeof line, 20000) == 0 && F.dirtyCount() == 0);
+    adv(p, 0x01, 2, 30267200, -97743100, "Hill RPT", &len);
+    CHECK(!F.onAdvert(p, len, 0, 6.6f, -95, true, 30280000, -97750000, 21000));                  // same node, barely better: nothing to report
+    CHECK(F.onAdvert(p, len, 0, 9.0f, -90, true, 30280000, -97750000, 22000));                   // clearly better: the position it was heard at moves
+    CHECK(F.nextLine(line, sizeof line, 22000) > 0 && strstr(line, "\"hlat\":30.280000") && strstr(line, "\"c\":3"));
+    adv(p, 0x02, 1, 0, 0, "Sam's phone", &len);
+    CHECK(F.onAdvert(p, len, 0, -8.0f, -118, true, 30281000, -97751000, 23000));                 // heard directly now beats relayed, and we have a fix
+    CHECK(F.nextLine(line, sizeof line, 23000) > 0 && strstr(line, "\"hop\":0") && strstr(line, "\"hlat\":30.281000"));
+    F.markAllDirty(); CHECK(F.dirtyCount() == 2);
+    // bad input is ignored
+    adv(p, 0x03, 5, 0, 0, "x", &len);                         CHECK(!F.onAdvert(p, len, 0, 1, -90, false, 0, 0, 1));   // unknown type
+    adv(p, 0x03, 2, 95000000, 0, "x", &len);                  CHECK(F.onAdvert(p, len, 0, 1, -90, false, 0, 0, 1) && F.count() == 3);   // absurd latitude is dropped, node kept
+    { char l3[320]; F.nextLine(l3, sizeof l3, 2); F.nextLine(l3, sizeof l3, 2); F.nextLine(l3, sizeof l3, 2); }
+    CHECK(!F.onAdvert(p, 50, 0, 1, -90, false, 0, 0, 1));                                      // too short to be an advert
+    adv(p, 0x04, 2, 0, 0, "Quote\"Back\\slash", &len);        F.onAdvert(p, len, 0, 1, -90, false, 0, 0, 1);
+    { bool ok = false; for (int i = 0; i < 4 && !ok; i++) { size_t m = F.nextLine(line, sizeof line, 5); ok = m && strstr(line, "\"n\":\"Quote?Back?slash\""); } CHECK(ok); }
+    CHECK(F.nextLine(line, 40, 5) == 0);                                                          // a buffer too small never writes a broken line
+    // the table is bounded: the oldest is dropped
+    FoundBook G;
+    for (int i = 0; i < NOVA_FOUND_SLOTS + 10; i++) { adv(p, (uint8_t)(i + 1), 2, 0, 0, "n", &len); p[1] = (uint8_t)i; G.onAdvert(p, len, 0, 1, -90, false, 0, 0, 1000u + (uint32_t)i); }
+    CHECK(G.count() == NOVA_FOUND_SLOTS);
+    // and the full command + the status line carry the edition
+    Nova N; char r[160]; N.runCommand("found", r, sizeof r, 0, 12);   CHECK(strstr(r, "found 0 repeaters"));
+    adv(p, 0x09, 2, 0, 0, "R", &len); N.found.onAdvert(p, len, 0, 1, -90, false, 0, 0, 1);
+    N.runCommand("found", r, sizeof r, 0, 12);                        CHECK(strstr(r, "found 1 repeaters, 0 companions"));
+    N.runCommand("found clear", r, sizeof r, 0, 12);                  CHECK(N.found.count() == 0);
+    static char o2[6144]; N.json(o2, sizeof o2, 5000, 12);            CHECK(strstr(o2, "\"ed\":\"" NOVA_EDITION "\"") && strstr(o2, NOVA_VERSION));
   }
 
   // 16. worst case dashboard line still fits its buffer

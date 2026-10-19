@@ -30,13 +30,25 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// Edition. LODESTAR ORION is the wardriving edition of this firmware: the same code, built with
+// -DNOVA_ORION=1, with its own name and version marker.
+#ifdef NOVA_ORION
+#define NOVA_PRODUCT        "ORION"
+#define NOVA_EDITION        "orion"
+#define NOVA_VER_SFX        "-orion"
+#else
+#define NOVA_PRODUCT        "NOVA"
+#define NOVA_EDITION        "nova"
+#define NOVA_VER_SFX        ""
+#endif
+
 // Speed units. The default build speaks km/h; build with -DNOVA_MPH=1 for a miles-per-hour version.
 #ifdef NOVA_MPH
-#define NOVA_VERSION        "0.1.0-beta-mph"
+#define NOVA_VERSION        "0.1.0-beta" NOVA_VER_SFX "-mph"
 #define NOVA_SPD_MUL        2.23694f      // metres per second -> miles per hour
 #define NOVA_SPD_UNIT       "mph"
 #else
-#define NOVA_VERSION        "0.1.0-beta"
+#define NOVA_VERSION        "0.1.0-beta" NOVA_VER_SFX
 #define NOVA_SPD_MUL        3.6f          // metres per second -> kilometres per hour
 #define NOVA_SPD_UNIT       "km/h"
 #endif
@@ -315,6 +327,129 @@ private:
 };
 
 // ----------------------------------------------------------------------------
+// Found nodes: every node whose advert this radio hears, with where it was heard.
+// This is the wardriving log. Companions and repeaters (and room servers and sensors) all
+// advertise themselves; an advert may carry the node's own announced location, and we add
+// our own GPS position at the moment we heard it best.
+// ----------------------------------------------------------------------------
+#define NOVA_FOUND_SLOTS 48
+#define NOVA_FOUND_NAME  20
+enum NodeType : uint8_t { NODE_COMPANION = 1, NODE_REPEATER = 2, NODE_ROOM = 3, NODE_SENSOR = 4 };
+
+struct FoundNode {
+  bool    used, dirty, has_adv, has_here;
+  uint8_t type, hops;                 // hops: 0 = heard directly, otherwise relayed through that many repeaters
+  int8_t  rssi;
+  int16_t snr_q;                      // best SNR seen, in quarter dB
+  uint8_t key[6];                     // first 6 bytes of the node's public key
+  char    name[NOVA_FOUND_NAME];
+  int32_t adv_lat, adv_lon;           // the location the node announces about itself (degrees * 1e6)
+  int32_t here_lat, here_lon;         // where this radio was when it heard the node best
+  uint16_t count;
+  uint32_t first_ms, last_ms, seq;
+};
+
+class FoundBook {
+public:
+  FoundBook() { memset(_e, 0, sizeof(_e)); }
+
+  // `payload` is a full advert payload: public key (32), timestamp (4), signature (64), app data.
+  // `hops` is how many repeaters it came through. `fix`/`lat_e6`/`lon_e6` are this radio's own position.
+  // Returns true if the node is new or something worth reporting changed.
+  bool onAdvert(const uint8_t* payload, size_t len, uint8_t hops, float snr, int rssi,
+                bool fix, int32_t lat_e6, int32_t lon_e6, uint32_t now) {
+    const size_t off = 32 + 4 + 64;
+    if (!payload || len <= off + 1) return false;
+    const uint8_t* ad = payload + off; size_t adlen = len - off;
+    uint8_t type = ad[0] & 0x0F;
+    if (type < NODE_COMPANION || type > NODE_SENSOR) return false;
+
+    bool has_adv = false; int32_t alat = 0, alon = 0;
+    if ((ad[0] & 0x10) && adlen >= 9) {
+      alat = rd32(ad + 1); alon = rd32(ad + 5);
+      has_adv = alat >= -90000000 && alat <= 90000000 && alon >= -180000000 && alon <= 180000000 && !(alat == 0 && alon == 0);
+    }
+    char nm[NOVA_FOUND_NAME] = {0};
+    if (NameBook::parseName(ad, adlen, nm, sizeof(nm))) {
+      for (char* c = nm; *c; c++) if (*c == '"' || *c == '\\') *c = '?';      // a name is data, never markup
+    }
+    int sq = (int)(snr * 4.0f + (snr < 0 ? -0.5f : 0.5f)); if (sq > 127 * 4) sq = 127 * 4; if (sq < -128 * 4) sq = -128 * 4;
+    int rs = rssi < -127 ? -127 : (rssi > 0 ? 0 : rssi);
+
+    int slot = -1;
+    for (int i = 0; i < NOVA_FOUND_SLOTS; i++) if (_e[i].used && memcmp(_e[i].key, payload, 6) == 0) { slot = i; break; }
+    bool fresh = slot < 0;
+    if (fresh) {
+      for (int i = 0; i < NOVA_FOUND_SLOTS; i++) {
+        if (!_e[i].used) { slot = i; break; }
+        if (slot < 0 || _e[i].seq < _e[slot].seq) slot = i;                  // otherwise drop the one not heard for longest
+      }
+      FoundNode& n = _e[slot]; memset(&n, 0, sizeof(n));
+      n.used = true; memcpy(n.key, payload, 6); n.first_ms = now;
+      n.hops = hops; n.rssi = (int8_t)rs; n.snr_q = (int16_t)sq;
+      n.has_here = false;
+    }
+    FoundNode& n = _e[slot];
+    bool changed = fresh;
+    n.type = type; n.last_ms = now; n.seq = ++_seq; if (n.count < 65535) n.count++;
+    if (nm[0] && strcmp(nm, n.name) != 0) { strncpy(n.name, nm, sizeof(n.name) - 1); n.name[sizeof(n.name) - 1] = 0; changed = true; }
+    if (has_adv && (!n.has_adv || n.adv_lat != alat || n.adv_lon != alon)) { n.has_adv = true; n.adv_lat = alat; n.adv_lon = alon; changed = true; }
+
+    // keep the best reception: heard more directly, or at least 1 dB stronger
+    bool better = fresh || hops < n.hops || (hops == n.hops && sq >= n.snr_q + 4) || (!n.has_here && fix);
+    if (better) {
+      n.hops = hops; n.rssi = (int8_t)rs; n.snr_q = (int16_t)sq;
+      if (fix) { n.has_here = true; n.here_lat = lat_e6; n.here_lon = lon_e6; }
+      changed = true;
+    }
+    if (changed) n.dirty = true;
+    return changed;
+  }
+
+  void markAllDirty() { for (int i = 0; i < NOVA_FOUND_SLOTS; i++) if (_e[i].used) _e[i].dirty = true; }
+  void clear() { memset(_e, 0, sizeof(_e)); _seq = 0; }
+  int  count(int type = 0) const { int c = 0; for (int i = 0; i < NOVA_FOUND_SLOTS; i++) if (_e[i].used && (type == 0 || _e[i].type == type)) c++; return c; }
+  int  dirtyCount() const { int c = 0; for (int i = 0; i < NOVA_FOUND_SLOTS; i++) if (_e[i].used && _e[i].dirty) c++; return c; }
+  const FoundNode* at(int i) const { return (i >= 0 && i < NOVA_FOUND_SLOTS && _e[i].used) ? &_e[i] : nullptr; }
+
+  // The next changed node as one JSON line (no newline); clears its flag. 0 if nothing is waiting
+  // or `cap` is too small (the flag is then left set).
+  size_t nextLine(char* out, size_t cap, uint32_t now) {
+    for (int i = 0; i < NOVA_FOUND_SLOTS; i++) {
+      FoundNode& n = _e[i];
+      if (!n.used || !n.dirty) continue;
+      size_t o = 0;
+      char kh[13]; for (int k = 0; k < 6; k++) snprintf(kh + k * 2, 3, "%02X", n.key[k]);
+      o += put(out + o, cap - o, "{\"nova\":1,\"found\":{\"k\":\"%s\",\"t\":%d,\"n\":\"%s\",\"hop\":%d,\"rs\":%d,\"sn\":%.1f,\"c\":%u,\"ago\":%lu,\"first\":%lu",
+               kh, n.type, n.name, n.hops, (int)n.rssi, (double)n.snr_q / 4.0, (unsigned)n.count,
+               (unsigned long)((uint32_t)(now - n.last_ms) / 1000u), (unsigned long)((uint32_t)(now - n.first_ms) / 1000u));
+      char a[16], b[16];
+      if (n.has_adv)  { e6(a, sizeof(a), n.adv_lat);  e6(b, sizeof(b), n.adv_lon);  o += put(out + o, cap - o, ",\"alat\":%s,\"alon\":%s", a, b); }
+      if (n.has_here) { e6(a, sizeof(a), n.here_lat); e6(b, sizeof(b), n.here_lon); o += put(out + o, cap - o, ",\"hlat\":%s,\"hlon\":%s", a, b); }
+      o += put(out + o, cap - o, "}}");
+      if (o == 0 || o >= cap) return 0;
+      n.dirty = false;
+      return o;
+    }
+    return 0;
+  }
+
+private:
+  static int32_t rd32(const uint8_t* p) { return (int32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24)); }
+  static void e6(char* out, size_t cap, int32_t v) {          // degrees * 1e6 as "-12.345678", with no floating point
+    bool neg = v < 0; int64_t a = neg ? -(int64_t)v : (int64_t)v;
+    snprintf(out, cap, "%s%ld.%06ld", neg ? "-" : "", (long)(a / 1000000), (long)(a % 1000000));
+  }
+  static size_t put(char* out, size_t cap, const char* fmt, ...) {
+    if (cap < 2) return 0;
+    va_list ap; va_start(ap, fmt); int n = vsnprintf(out, cap, fmt, ap); va_end(ap);
+    return (n < 0 || (size_t)n >= cap) ? cap : (size_t)n;     // cap means "did not fit"
+  }
+  FoundNode _e[NOVA_FOUND_SLOTS];
+  uint32_t _seq = 0;
+};
+
+// ----------------------------------------------------------------------------
 // Range check
 // ----------------------------------------------------------------------------
 enum RangeVerdict : uint8_t { RANGE_NONE = 0, RANGE_WEAK = 1, RANGE_OK = 2, RANGE_GOOD = 3 };
@@ -532,6 +667,7 @@ public:
   Battery      batt;
   Diag         diag;
   NameBook     names;
+  FoundBook    found;
 
   bool     settings_dirty = false;      // the glue saves the settings when this is set, then clears it
   uint32_t dash_until_ms = 0;           // dashboard stream runs while now < this (see `nova hello`)
@@ -631,7 +767,7 @@ public:
     if (*args == 0 || strncmp(args, "status", 6) == 0) {
       int pc = batt.pct();
       char b[24]; if (pc >= 0) snprintf(b, sizeof(b), "%d%%%s", pc, batt.charging() ? "+" : ""); else snprintf(b, sizeof(b), "?");
-      snprintf(reply, cap, "NOVA %s profile %s batt %s link %s heard %d sent %lu ok %lu failed %lu quiet %s",
+      snprintf(reply, cap, NOVA_PRODUCT " %s profile %s batt %s link %s heard %d sent %lu ok %lu failed %lu quiet %s",
                NOVA_VERSION, profileParams(cfg.profile).name, b, linkUsable() ? "usable" : "none", link.count(),
                (unsigned long)deliveries.stats.sent, (unsigned long)deliveries.stats.delivered,
                (unsigned long)deliveries.stats.failed, quietNow(local_hour) ? "now" : (cfg.quiet_on ? "on" : "off"));
@@ -665,11 +801,16 @@ public:
       if (strncmp(a, "reset", 5) == 0) { trip.reset(); snprintf(reply, cap, "OK - trip cleared"); }
       else snprintf(reply, cap, "trip %.1f km, %lu min moving, top %d " NOVA_SPD_UNIT, trip.dist_m / 1000.0,
                     (unsigned long)(trip.moving_ms / 60000u), (int)(trip.top_mps * NOVA_SPD_MUL + 0.5f));
+    } else if (strncmp(args, "found", 5) == 0) {
+      const char* a = args + 5; while (*a == ' ') a++;
+      if (strncmp(a, "clear", 5) == 0) { found.clear(); snprintf(reply, cap, "OK - found list cleared"); }
+      else snprintf(reply, cap, "found %d repeaters, %d companions, %d other", found.count(NODE_REPEATER), found.count(NODE_COMPANION),
+                    found.count(NODE_ROOM) + found.count(NODE_SENSOR));
     } else if (strncmp(args, "defaults", 8) == 0) {
       cfg = Settings(); applyProfile(); settings_dirty = true;
       snprintf(reply, cap, "OK - NOVA settings back to defaults");
     } else {
-      snprintf(reply, cap, "nova [status|profile hike|car|desk|quiet 22-7|off|trip [reset]|defaults]");
+      snprintf(reply, cap, "nova [status|profile hike|car|desk|quiet 22-7|off|trip [reset]|found [clear]|defaults]");
     }
   }
 
@@ -680,7 +821,7 @@ public:
   size_t json(char* out, size_t cap, uint32_t now, int local_hour) {
     J j(out, cap);
     link.loop(now);
-    j.f("{\"nova\":1,\"v\":\"%s\",\"unit\":\"%s\",\"t\":%lu,\"prof\":\"%s\"", NOVA_VERSION, NOVA_SPD_UNIT, (unsigned long)now, profileParams(cfg.profile).name);
+    j.f("{\"nova\":1,\"ed\":\"%s\",\"v\":\"%s\",\"unit\":\"%s\",\"t\":%lu,\"prof\":\"%s\"", NOVA_EDITION, NOVA_VERSION, NOVA_SPD_UNIT, (unsigned long)now, profileParams(cfg.profile).name);
     j.f(",\"quiet\":{\"on\":%d,\"now\":%d,\"s\":%d,\"e\":%d}", cfg.quiet_on ? 1 : 0, quietNow(local_hour) ? 1 : 0, cfg.quiet_start, cfg.quiet_end);
 
     // battery

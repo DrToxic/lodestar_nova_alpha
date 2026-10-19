@@ -89,7 +89,7 @@ Every release comes in one speed unit: releases ending in `US` use mph and relea
 
 ## The dashboard
 
-The OLED has room for five short lines. The dashboard is a web page that shows everything NOVA knows, on a computer or laptop: the full repeater table, a score graph over the last 15 minutes, a trip map with your track and the last-coverage marker, battery history, message history, diagnostics, and controls for profile, quiet hours and clearing the trip. There is nothing to install.
+The OLED has room for five short lines. The dashboard is a web page that shows everything NOVA knows, on a computer or laptop: the full repeater table, a score graph over the last 15 minutes, a street map of your trip with the nodes you found, the last-coverage marker, battery history, message history, diagnostics, and controls for profile, quiet hours and clearing the trip. There is nothing to install.
 
 1. Use the Bluetooth build, and plug the radio into the computer with a USB **data** cable. Your phone can stay connected over Bluetooth.
 2. Open the dashboard at **<https://propertymonitor-web.github.io/lodestar_nova_alpha/>** in **Chrome or Edge**. (Offline, you can instead open `dashboard.html` from the release.) Firefox and Safari cannot talk to USB devices.
@@ -101,6 +101,24 @@ No radio yet? Click **Try sample data** to see the page with made-up numbers.
 **Privacy.** The radio only sends dashboard data while the page is connected and asking for it. The data includes your GPS position, and it travels only over the USB cable to your computer. The page does not send your data anywhere; its only request to the internet is for the typeface from Google Fonts, and it falls back to your system font without it.
 
 You can also type commands into any serial terminal (115200 baud) on the Bluetooth build: `nova status`, `nova profile hike|car|desk`, `nova quiet 22-7`, `nova quiet off`, `nova trip reset`, `nova defaults`. Replies start with `#`.
+
+## Trip map and found nodes
+
+The dashboard's map is a real street map (OpenStreetMap). While a radio with a GPS fix is connected, the page draws the route you drove as a purple line on top of the roads, and keeps your position in view (press **Follow me** to switch that off, **Show everything** to zoom out to the whole route). It needs an internet connection for the map tiles; the route and markers are still drawn and saved without it.
+
+NOVA also keeps a list of **every node whose advert it hears**: repeaters show as **green dots** and companions as **blue squares**. Each one is placed where it says it is (nodes can announce their own position in their advert). A node that does not announce a position is shown faded, at the spot where you heard it best. Click a marker for its name, key, signal, how many repeaters it came through, and when it was last heard.
+
+The list, and the route, are kept in your browser, so they survive a refresh. Use **Download list (CSV)**, **Download map file (GeoJSON)** or **Download route + nodes (GPX)** to take them away; the CSV has both the announced position and the position you heard the node at. **Clear found list** empties it on the page and on the radio. The radio holds the most recent 48 nodes; the page keeps up to 5,000.
+
+Please treat the files as private. They contain other people's radio names and the places they announce, and a companion is usually a person.
+
+Notes: the position of a relayed advert is where *you* were, not where the original sender is. Room servers and sensors are listed in the downloads but not drawn. The map needs the dashboard to be opened from the web address above (a copy opened from a file on disk may not get map tiles from OpenStreetMap, which expects a referring web page). Map data (c) OpenStreetMap contributors. The dashboard includes Leaflet 1.9.4 (BSD-2-Clause).
+
+## LODESTAR ORION (wardriving edition)
+
+**LODESTAR ORION** is this same firmware built as the wardriving edition: it carries the ORION name on the screen and in the dashboard, and the dashboard opens as the ORION wardriving dashboard. It is made for driving or walking around with a GPS-equipped radio and mapping every repeater and companion you hear, then downloading the list. Everything above works in NOVA too; ORION is the name and the build to choose if mapping is what you bought it for. Without a GPS only nodes that announce their own position can be placed.
+
+Releases named `LODESTARorion...` are this edition. To build one yourself, set **edition** to `orion` in the build form.
 
 ## Settings are remembered
 
