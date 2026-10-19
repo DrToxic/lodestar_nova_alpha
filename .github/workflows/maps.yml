@@ -1,0 +1,104 @@
+name: Build an offline map region
+
+run-name: "Offline map: ${{ inputs.region }}"
+
+# Cuts one region out of the free Protomaps OpenStreetMap build and attaches it to a GitHub Release as a
+# single .pmtiles file. The dashboard offers these files in its "Offline map" list; people download one
+# before a trip and load it, and the map then works with no signal.
+# Uses `pmtiles extract`, which fetches only the needed part of the build in large batches
+# (it does not scrape tiles one at a time).
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "File name for the region, letters, digits and dashes only, e.g. texas or london"
+        required: true
+        type: string
+      title:
+        description: "Name shown in the dashboard's list, e.g. Texas"
+        required: true
+        type: string
+      bbox:
+        description: "min longitude, min latitude, max longitude, max latitude, comma separated, e.g. -106.7,25.8,-93.5,36.6"
+        required: true
+        type: string
+      maxzoom:
+        description: "Most detailed zoom to include. 14 shows local streets; 13 is about a quarter of the size"
+        default: "14"
+        required: true
+        type: string
+      release_tag:
+        description: "Release the file is attached to. An existing file of the same name is replaced"
+        default: maps
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    name: Cut the region
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the inputs
+        env:
+          REGION: ${{ inputs.region }}
+          BBOX: ${{ inputs.bbox }}
+          MAXZ: ${{ inputs.maxzoom }}
+        run: |
+          [[ "$REGION" =~ ^[A-Za-z0-9-]{2,40}$ ]] || { echo "::error::The region name must be 2-40 letters, digits or dashes."; exit 1; }
+          [[ "$MAXZ" =~ ^[0-9]{1,2}$ ]] && [ "$MAXZ" -ge 6 ] && [ "$MAXZ" -le 15 ] || { echo "::error::maxzoom must be a number from 6 to 15."; exit 1; }
+          python3 - "$BBOX" <<'PY'
+          import sys
+          try:
+              a, b, c, d = [float(x) for x in sys.argv[1].split(",")]
+          except Exception:
+              raise SystemExit("::error::bbox must be four numbers: min lon, min lat, max lon, max lat")
+          assert -180 <= a < c <= 180 and -85 <= b < d <= 85, "::error::bbox is out of range or the wrong way round"
+          print("bbox ok, about %.0f x %.0f km" % ((c - a) * 111 * 0.8, (d - b) * 111))
+          PY
+
+      - name: Install pmtiles
+        run: |
+          URL=$(curl -s https://api.github.com/repos/protomaps/go-pmtiles/releases/latest | jq -r '.assets[] | select(.name | test("Linux_x86_64.tar.gz$")) | .browser_download_url' | head -1)
+          [ -n "$URL" ] || { echo "::error::Could not find the pmtiles download."; exit 1; }
+          curl -sL "$URL" | tar xz pmtiles
+          ./pmtiles version
+
+      - name: Find the newest Protomaps build
+        run: |
+          KEY=$(curl -s https://build-metadata.protomaps.dev/builds.json | jq -r 'sort_by(.uploaded) | last | .key')
+          [[ "$KEY" =~ ^[0-9]{8}\.pmtiles$ ]] || { echo "::error::Unexpected build name: $KEY"; exit 1; }
+          echo "KEY=$KEY" >> "$GITHUB_ENV"
+          echo "Using $KEY"
+
+      - name: Extract the region
+        env:
+          REGION: ${{ inputs.region }}
+          BBOX: ${{ inputs.bbox }}
+          MAXZ: ${{ inputs.maxzoom }}
+        run: |
+          ./pmtiles extract "https://build.protomaps.com/$KEY" "$REGION.pmtiles" --bbox="$BBOX" --maxzoom="$MAXZ" --download-threads=4 2>&1 | tail -20
+          SIZE=$(stat -c %s "$REGION.pmtiles")
+          echo "Result: $SIZE bytes"
+          [ "$SIZE" -gt 10000 ] || { echo "::error::The result is empty. Check the bbox."; exit 1; }
+          [ "$SIZE" -lt 1900000000 ] || { echo "::error::The file is over 1.9 GB, which a release cannot hold. Use a smaller area or a lower maxzoom."; exit 1; }
+          ./pmtiles show "$REGION.pmtiles" | head -25
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGION: ${{ inputs.region }}
+          TITLE: ${{ inputs.title }}
+          BBOX: ${{ inputs.bbox }}
+          MAXZ: ${{ inputs.maxzoom }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Offline map regions" --target "$GITHUB_SHA" --notes "Region map files for the LODESTAR dashboard (Offline map list). Download one, then load it in the dashboard. Map data (c) OpenStreetMap contributors, ODbL; basemap tiles built by Protomaps." --prerelease
+          fi
+          gh release upload "$TAG" "$REGION.pmtiles" --clobber
+          # remember the name, bbox and source build next to the file, for the list in the dashboard
+          printf '{"region":"%s","title":%s,"bbox":"%s","maxzoom":%s,"build":"%s"}\n' "$REGION" "$(printf '%s' "$TITLE" | jq -R .)" "$BBOX" "$MAXZ" "$KEY" > "$REGION.json"
+          gh release upload "$TAG" "$REGION.json" --clobber
