@@ -904,6 +904,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
           <button id="btnFollow" aria-pressed="true">Follow me</button>
           <button id="btnFit">Show everything</button>
         </div>
+        <p class="hint" id="mapNote" hidden></p>
         <div class="map" id="map" role="application" aria-label="Map of the trip and the nodes found"></div>
         <div class="chart" id="mapChart" hidden></div>
         <p class="legend-note"><span class="sw sw-you"></span> you and the route you drove &nbsp; <span class="sw sw-rep"></span> repeater &nbsp; <span class="sw sw-comp"></span> companion &nbsp; <span class="sw sw-cov"></span> last place with a usable repeater. A faded marker means the node did not announce its position, so it is shown where you heard it. Map data &copy; OpenStreetMap contributors; the map needs an internet connection.</p>
@@ -1244,7 +1245,15 @@ function initMap() {
   if (!window.L || S.map) return;
   $("map").hidden = false; $("mapChart").hidden = true;
   S.map = L.map("map", { zoomControl: true, attributionControl: true, worldCopyJump: true }).setView([39.5, -98.35], 3);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }).addTo(S.map);
+  const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors' }).addTo(S.map);
+  let okT = 0, badT = 0;
+  const ONLINE = "https://propertymonitor-web.github.io/lodestar_nova_alpha/";
+  const showNote = () => { const n = $("mapNote"); n.hidden = false;
+    n.innerHTML = (location.protocol === "file:" ? "You opened this page from a file, and OpenStreetMap often refuses map tiles for that. " : "The street map could not be loaded (no internet, or the map server said no). ") +
+      'The route and your nodes are still recorded and drawn. For the street map, open the <a href="' + ONLINE + '">online dashboard</a>; the radio connection and downloads work the same there.'; };
+  if (location.protocol === "file:") showNote();
+  tiles.on("tileload", () => { okT++; if (okT === 1 && location.protocol !== "file:") $("mapNote").hidden = true; });
+  tiles.on("tileerror", () => { badT++; if (badT >= 4 && okT === 0) showNote(); });
   S.gRep = L.layerGroup().addTo(S.map); S.gComp = L.layerGroup().addTo(S.map);
   S.routeCase = L.polyline([], { color: "#ffffff", weight: 9, opacity: 0.85, lineJoin: "round", lineCap: "round", interactive: false }).addTo(S.map);
   S.routeLine = L.polyline([], { color: "#6250d6", weight: 5, opacity: 0.95, lineJoin: "round", lineCap: "round", interactive: false }).addTo(S.map);
