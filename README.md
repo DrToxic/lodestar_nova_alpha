@@ -104,7 +104,7 @@ You can also type commands into any serial terminal (115200 baud) on the Bluetoo
 
 ## Trip map and found nodes
 
-The dashboard's map is a real street map (OpenStreetMap). While a radio with a GPS fix is connected, the page draws the route you drove as a purple line on top of the roads, and keeps your position in view (press **Follow me** to switch that off, **Show everything** to zoom out to the whole route). It needs an internet connection for the map tiles; the route and markers are still drawn and saved without it.
+The dashboard's map is a real street map built from OpenStreetMap data (tiles by CARTO, or OpenStreetMap's own server if you pick it in the Map list). While a radio with a GPS fix is connected, the page draws the route you drove as a purple line on top of the roads, and keeps your position in view (press **Follow me** to switch that off, **Show everything** to zoom out to the whole route). It needs an internet connection for the map tiles; the route and markers are still drawn and saved without it.
 
 NOVA also keeps a list of **every node whose advert it hears**: repeaters show as **green dots** and companions as **blue squares**. Each one is placed where it says it is (nodes can announce their own position in their advert). A node that does not announce a position is shown faded, at the spot where you heard it best. Click a marker for its name, key, signal, how many repeaters it came through, and when it was last heard.
 
@@ -112,7 +112,7 @@ The list, and the route, are kept in your browser, so they survive a refresh. Us
 
 Please treat the files as private. They contain other people's radio names and the places they announce, and a companion is usually a person.
 
-Notes: the position of a relayed advert is where *you* were, not where the original sender is. Room servers and sensors are listed in the downloads but not drawn. The map needs the dashboard to be opened from the web address above (a copy opened from a file on disk may not get map tiles from OpenStreetMap, which expects a referring web page). Map data (c) OpenStreetMap contributors. The dashboard includes Leaflet 1.9.4 (BSD-2-Clause).
+Notes: the position of a relayed advert is where *you* were, not where the original sender is. Room servers and sensors are listed in the downloads but not drawn. The default tile source (CARTO Voyager) loads from any page, including a copy of the dashboard opened from a file on disk. OpenStreetMap's own tile server only serves pages that send a referring web address, so it works from the online dashboard but is refused for a file on disk; the dashboard switches to the other source by itself if one fails. Both are free for light personal use and ask for attribution (shown on the map): map data (c) OpenStreetMap contributors, tiles (c) CARTO. For heavy or commercial use, or for a project you distribute widely, use your own tile provider. The dashboard includes Leaflet 1.9.4 (BSD-2-Clause).
 
 ## LODESTAR ORION (wardriving edition)
 
