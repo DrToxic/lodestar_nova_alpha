@@ -96,11 +96,11 @@ jobs:
           TAG: ${{ inputs.release_tag }}
         run: |
           fail() { echo "::error::$1"; exit 1; }
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            OUT=$(gh release create "$TAG" --title "Offline map regions" --target "$GITHUB_SHA" --prerelease \
+          if ! gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            OUT=$(gh release create "$TAG" -R "$GITHUB_REPOSITORY" --title "Offline map regions" --target "$GITHUB_SHA" --prerelease \
               --notes "Region map files for the LODESTAR dashboard (Offline map list). Download one, then load it in the dashboard. Map data (c) OpenStreetMap contributors, ODbL; basemap tiles built by Protomaps." 2>&1) || fail "release create: $OUT"
           fi
-          OUT=$(gh release upload "$TAG" "$REGION.pmtiles" --clobber 2>&1) || fail "upload: $OUT"
+          OUT=$(gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$REGION.pmtiles" --clobber 2>&1) || fail "upload: $OUT"
           # remember the name, bbox and source build next to the file, for the list in the dashboard
           printf '{"region":"%s","title":%s,"bbox":"%s","maxzoom":%s,"build":"%s"}\n' "$REGION" "$(printf '%s' "$TITLE" | jq -R .)" "$BBOX" "$MAXZ" "$KEY" > "$REGION.json"
-          OUT=$(gh release upload "$TAG" "$REGION.json" --clobber 2>&1) || fail "upload json: $OUT"
+          OUT=$(gh release upload "$TAG" -R "$GITHUB_REPOSITORY" "$REGION.json" --clobber 2>&1) || fail "upload json: $OUT"
