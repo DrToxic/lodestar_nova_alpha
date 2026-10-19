@@ -27,6 +27,11 @@ on:
         default: "14"
         required: true
         type: string
+      geojson:
+        description: "Optional: a GeoJSON polygon to cut instead of the whole box (for a corridor such as a highway). The bbox must still be its bounds"
+        default: ""
+        required: false
+        type: string
       release_tag:
         description: "Release the file is attached to. An existing file of the same name is replaced"
         default: maps
@@ -78,8 +83,15 @@ jobs:
           REGION: ${{ inputs.region }}
           BBOX: ${{ inputs.bbox }}
           MAXZ: ${{ inputs.maxzoom }}
+          GEOJSON: ${{ inputs.geojson }}
         run: |
-          ./pmtiles extract "https://build.protomaps.com/$KEY" "$REGION.pmtiles" --bbox="$BBOX" --maxzoom="$MAXZ" --download-threads=4 2>&1 | tail -20
+          if [ -n "$GEOJSON" ]; then
+            printf '%s' "$GEOJSON" > region.geojson
+            jq -e . region.geojson >/dev/null || { echo "::error::The geojson input is not valid JSON."; exit 1; }
+            ./pmtiles extract "https://build.protomaps.com/$KEY" "$REGION.pmtiles" --region=region.geojson --maxzoom="$MAXZ" --download-threads=4 2>&1 | tail -20
+          else
+            ./pmtiles extract "https://build.protomaps.com/$KEY" "$REGION.pmtiles" --bbox="$BBOX" --maxzoom="$MAXZ" --download-threads=4 2>&1 | tail -20
+          fi
           SIZE=$(stat -c %s "$REGION.pmtiles")
           echo "Result: $SIZE bytes"
           [ "$SIZE" -gt 10000 ] || { echo "::error::The result is empty. Check the bbox."; exit 1; }
