@@ -65,8 +65,10 @@ jobs:
           PY
 
       - name: Install pmtiles
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          URL=$(curl -s https://api.github.com/repos/protomaps/go-pmtiles/releases/latest | jq -r '.assets[] | select(.name | test("Linux_x86_64.tar.gz$")) | .browser_download_url' | head -1)
+          URL=$(curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/protomaps/go-pmtiles/releases/latest | jq -r '.assets[] | select(.name | test("Linux_x86_64.tar.gz$")) | .browser_download_url' | head -1)
           [ -n "$URL" ] || { echo "::error::Could not find the pmtiles download."; exit 1; }
           curl -sL "$URL" | tar xz pmtiles
           ./pmtiles version
