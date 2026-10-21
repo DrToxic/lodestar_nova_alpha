@@ -106,6 +106,8 @@ jobs:
           cp nova/Nova.h lodestar/Lodestar.h inc/helpers/
           g++ -std=c++17 -Wall -Wextra -Iinc -Inova/ui -isystem MeshCore/src nova/test/test_ui.cpp -o ui_test
           ./ui_test
+          g++ -std=c++17 -Wall -Wextra -DNOVA_ORION=1 -Iinc -Inova/ui -isystem MeshCore/src nova/test/test_ui.cpp -o ui_test_orion
+          ./ui_test_orion
 
   build:
     name: Build firmware

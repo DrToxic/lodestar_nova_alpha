@@ -8,6 +8,11 @@
 ColorVal UIColor::window_bkg = 0, UIColor::title_bkg = 1, UIColor::title_txt = 1, UIColor::primary_txt = 1,
          UIColor::secondary_txt = 1, UIColor::warning_txt = 1, UIColor::popup_bkg = 0, UIColor::popup_txt = 1, UIColor::corp_blue = 1;
 
+#ifdef NOVA_ORION
+#define NOVA_ROLE_FOR_TEST "Wardriving"
+#else
+#define NOVA_ROLE_FOR_TEST "Companion"
+#endif
 static int fails = 0;
 #define CHECK(c) do { if (!(c)) { printf("FAIL line %d: %s\n", __LINE__, #c); fails++; } } while (0)
 
@@ -28,7 +33,8 @@ struct Mock : DisplayDriver {
   void box(int x, int y, int w, int h) { shapes++; if (x < 0 || y < 0 || x + w > 128 || y + h > 64) bad++; }
   void fillRect(int x, int y, int w, int h) override { box(x, y, w, h); }
   void drawRect(int x, int y, int w, int h) override { box(x, y, w, h); }
-  void drawXbm(int, int, const uint8_t*, int, int) override {}
+  int xbm = 0;
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override { xbm++; if (!bits || x < 0 || y < 0 || x + w > 128 || y + h > 64) { bad++; printf("  emblem off-screen\n"); } }
   void endFrame() override {}
   bool has(const char* needle) const { for (auto& l : lines) if (l.find(needle) != std::string::npos) return true; return false; }
 };
@@ -88,7 +94,7 @@ int main() {
     CHECK(!(m.bad + m2.bad + m3.bad + m3b.bad + m3c.bad + m3d.bad + m4.bad + m5.bad + m6.bad + m6b.bad + m7.bad + m8.bad));
   }
   // ---- splash fits, and says who made it ----
-  { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.has("LODESTAR") && m.has(NOVA_PRODUCT) && m.has("by FEAR REACTIVE") && m.has("MeshCore v1.15.0"));
+  { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.xbm == 1 && m.has("LODESTAR") && m.has(NOVA_PRODUCT) && m.has("FEAR REACTIVE") && m.has(NOVA_ROLE_FOR_TEST));
     Mock m2; splash(m2, "v10.200.3000-abcdef"); CHECK(m2.bad == 0); }
   // ---- the arrow points the right way (checked on the squares it draws) ----
   {

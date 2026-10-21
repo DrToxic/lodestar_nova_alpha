@@ -11,6 +11,8 @@
 #include <helpers/Nova.h>
 #include <stdio.h>
 #include <math.h>
+#include "NovaLogo.h"
+#include "OrionLogo.h"
 
 #ifndef NOVA_PRESS
   #ifdef PRESS_LABEL
@@ -247,16 +249,24 @@ static inline void pageQuiet(DisplayDriver& d, nova::Nova& N, int hour) {
 }
 
 // ---- boot splash ----------------------------------------------------------------------------------
+// The emblem on the left (a flaring star for NOVA, the Orion constellation for ORION), the name on the right.
 static inline void splash(DisplayDriver& d, const char* meshcore_version) {
-  int mid = d.width() / 2;
-  d.setColor(UIColor::corp_blue); d.setTextSize(2);
-  d.drawTextCentered(mid, 2, "LODESTAR");
-  d.drawTextCentered(mid, 19, NOVA_PRODUCT);
-  d.setColor(UIColor::primary_txt); d.setTextSize(1);
-  d.drawTextCentered(mid, 40, "by FEAR REACTIVE");
-  char b[32]; snprintf(b, sizeof(b), "MeshCore %.12s", meshcore_version);
-  d.setColor(UIColor::secondary_txt);
-  d.drawTextCentered(mid, 53, b);
+  (void)meshcore_version;   // not shown: the splash is only on screen for a few seconds, so it stays short. Settings page has it.
+#ifdef NOVA_ORION
+  const uint8_t* logo = orion_logo; const int lw = ORION_LOGO_W, lh = ORION_LOGO_H; const char* role = "Wardriving";
+#else
+  const uint8_t* logo = nova_logo;  const int lw = NOVA_LOGO_W,  lh = NOVA_LOGO_H;  const char* role = "Companion";
+#endif
+  d.setColor(UIColor::primary_txt);
+  d.drawXbm(2, (d.height() - lh) / 2, logo, lw, lh);
+  const int mid = 2 + lw + 4 + (d.width() - (2 + lw + 4)) / 2;   // centre of the space beside the emblem
+  d.setTextSize(1); d.setColor(UIColor::corp_blue);
+  d.drawTextCentered(mid, 4, "LODESTAR");
+  d.setTextSize(2);
+  d.drawTextCentered(mid, 14, NOVA_PRODUCT);
+  d.setTextSize(1); d.setColor(UIColor::primary_txt);
+  d.drawTextCentered(mid, 36, role);
+  d.drawTextCentered(mid, 48, "FEAR REACTIVE");
 }
 
 // ---- key handling shared by the pages -------------------------------------------------------------
