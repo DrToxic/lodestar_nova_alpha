@@ -9,7 +9,7 @@ ColorVal UIColor::window_bkg = 0, UIColor::title_bkg = 1, UIColor::title_txt = 1
          UIColor::secondary_txt = 1, UIColor::warning_txt = 1, UIColor::popup_bkg = 0, UIColor::popup_txt = 1, UIColor::corp_blue = 1;
 
 #ifdef NOVA_ORION
-#define NOVA_ROLE_FOR_TEST "Wardriving"
+#define NOVA_ROLE_FOR_TEST "Created by"   // the ORION splash shows the credits instead of a role line
 #else
 #define NOVA_ROLE_FOR_TEST "Companion"
 #endif
@@ -95,6 +95,9 @@ int main() {
   }
   // ---- splash fits, and says who made it ----
   { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.xbm == 1 && m.has("LODESTAR") && m.has(NOVA_PRODUCT) && m.has("FEAR REACTIVE") && m.has(NOVA_ROLE_FOR_TEST));
+#ifdef NOVA_ORION
+    CHECK(m.has("Aries Thorne") && m.has("Todd Steinhauer"));
+#endif
     Mock m2; splash(m2, "v10.200.3000-abcdef"); CHECK(m2.bad == 0); }
   // ---- the arrow points the right way (checked on the squares it draws) ----
   {

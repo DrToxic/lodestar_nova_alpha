@@ -253,10 +253,21 @@ static inline void pageQuiet(DisplayDriver& d, nova::Nova& N, int hour) {
 static inline void splash(DisplayDriver& d, const char* meshcore_version) {
   (void)meshcore_version;   // not shown: the splash is only on screen for a few seconds, so it stays short. Settings page has it.
 #ifdef NOVA_ORION
-  const uint8_t* logo = orion_logo; const int lw = ORION_LOGO_W, lh = ORION_LOGO_H; const char* role = "Wardriving";
+  // ORION: smaller emblem top-left, name beside it, credits across the bottom.
+  d.setColor(UIColor::primary_txt);
+  d.drawXbm(4, 0, orion_logo, ORION_LOGO_W, ORION_LOGO_H);
+  const int mid = 4 + ORION_LOGO_W + 4 + (d.width() - (4 + ORION_LOGO_W + 4)) / 2;
+  d.setTextSize(1); d.setColor(UIColor::corp_blue);
+  d.drawTextCentered(mid, 3, "LODESTAR");
+  d.setTextSize(2); d.setColor(UIColor::primary_txt);
+  d.drawTextCentered(mid, 13, NOVA_PRODUCT);
+  d.setTextSize(1);
+  d.drawTextCentered(mid, 31, "FEAR REACTIVE");
+  d.drawTextCentered(d.width() / 2, 40, "Created by");
+  d.drawTextCentered(d.width() / 2, 48, "Aries Thorne &");
+  d.drawTextCentered(d.width() / 2, 56, "Todd Steinhauer");
 #else
   const uint8_t* logo = nova_logo;  const int lw = NOVA_LOGO_W,  lh = NOVA_LOGO_H;  const char* role = "Companion";
-#endif
   d.setColor(UIColor::primary_txt);
   d.drawXbm(2, (d.height() - lh) / 2, logo, lw, lh);
   const int mid = 2 + lw + 4 + (d.width() - (2 + lw + 4)) / 2;   // centre of the space beside the emblem
@@ -267,6 +278,7 @@ static inline void splash(DisplayDriver& d, const char* meshcore_version) {
   d.setTextSize(1); d.setColor(UIColor::primary_txt);
   d.drawTextCentered(mid, 36, role);
   d.drawTextCentered(mid, 48, "FEAR REACTIVE");
+#endif
 }
 
 // ---- key handling shared by the pages -------------------------------------------------------------
