@@ -841,6 +841,17 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .offlist .nm2 { font-weight: 600; flex: 1 1 160px; }
 .offlist .meta { color: var(--muted); font-size: 13px; }
 .found-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+
+/* the pet screen mirror */
+#petPanel[hidden] { display: none; }
+#petPanel { margin-bottom: 14px; }
+.petscreen { background: #05080c; border-radius: 8px; padding: 10px; display: flex; justify-content: center; align-items: center; }
+.petscreen canvas { width: 100%; max-width: 1024px; height: auto; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block; }
+.petscreen:fullscreen { padding: 0; border-radius: 0; }
+.petscreen:fullscreen canvas { max-width: none; width: 100vw; height: auto; max-height: 100vh; object-fit: contain; }
+.petbar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0 0; }
+.petbar .cap { flex: 1 1 240px; color: var(--ink2); font-weight: 600; }
+.petbar .cap.stale { color: var(--muted); font-weight: 400; }
 </style>
 </head>
 <body>
@@ -856,6 +867,17 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
   </header>
 
   <p id="notice" hidden></p>
+
+  <section class="panel" id="petPanel" hidden aria-label="Your pet">
+    <h2>Your pet <span class="note">live from the radio's screen &middot; LODESTAR ORION + Pet firmware</span></h2>
+    <div class="petscreen" id="petBox"><canvas id="petCanvas" width="1024" height="512" role="img" aria-label="The pet on the radio's screen, enlarged"></canvas></div>
+    <div class="petbar">
+      <span class="cap" id="petCap">Waiting for the pet&hellip;</span>
+      <button id="petFull">Full screen</button>
+      <button id="petPng">Save picture</button>
+      <button id="petGrid" aria-pressed="false">Pixel grid</button>
+    </div>
+  </section>
 
   <section class="readouts" aria-label="Right now">
     <div class="read hero">
@@ -1076,8 +1098,67 @@ function onFrame(f, ts) {
   if (addRoutePoint(f.gps, ts)) scheduleSave();
   render();
 }
+/*PET-BEGIN*/
+const PET = {
+  ask: false, probe: 0, seen: 0, seq: -1, fb: new Uint8Array(1024), meta: null, last: 0, grid: false, lastSeq: 0,
+  decode(b64) {                       // base64 -> run-length bytes -> 1024 delta bytes
+    const bin = atob(b64), out = new Uint8Array(1024); let o = 0;
+    for (let i = 0; i < bin.length && o < 1024;) {
+      const c = bin.charCodeAt(i++);
+      if (c) out[o++] = c; else { const run = bin.charCodeAt(i++) | 0; o += run; }
+    }
+    return out;
+  },
+  // returns true when a picture was updated
+  apply(p) {
+    if (!p || typeof p.d !== "string") return false;
+    if (p.k) {
+      this.fb = this.decode(p.d); this.seq = p.s;
+      if (p.n) this.meta = { n: p.n, x: p.x, m: p.m, c: p.c, i: p.i };
+    } else {
+      if (this.seq < 0 || p.s !== this.seq + 1) { this.seq = -1; return false; }    // missed one: wait for the next key frame
+      const d = this.decode(p.d); for (let i = 0; i < 1024; i++) this.fb[i] ^= d[i];
+      this.seq = p.s;
+    }
+    return true;
+  },
+  reset() { this.seq = -1; this.seen = 0; this.meta = null; this.fb = new Uint8Array(1024); },
+};
+/*PET-END*/
+const petCtx = () => $("petCanvas").getContext("2d");
+function petDraw() {
+  const c = $("petCanvas"), x = c.getContext("2d"), K = 8, g = PET.grid ? 1 : 0;
+  x.fillStyle = "#05080c"; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = "#8fd4ff";
+  for (let y = 0; y < 64; y++) for (let b = 0; b < 16; b++) {
+    const v = PET.fb[y * 16 + b]; if (!v) continue;
+    for (let k = 0; k < 8; k++) if (v & (0x80 >> k)) x.fillRect((b * 8 + k) * K, y * K, K - g, K - g);
+  }
+}
+function petCaption() {
+  const m = PET.meta, el = $("petCap"); if (!m) return;
+  const name = m.n.charAt(0).toUpperCase() + m.n.slice(1);
+  const age = m.m < 24 ? m.m + " months old" : (m.m % 12 ? Math.floor(m.m / 12) + " yr " + (m.m % 12) + " mo" : (m.m / 12) + " years old");
+  el.textContent = name + " \u00b7 " + (m.x ? "female" : "male") + " \u00b7 " + age + (m.c > 1 ? " \u00b7 pet " + m.i + " of " + m.c : "");
+  el.classList.remove("stale");
+}
+function onPetLine(line) {
+  let o; try { o = JSON.parse(line); } catch (e) { return; }
+  if (!PET.apply(o.pet)) return;
+  PET.seen++; PET.last = Date.now();
+  if ($("petPanel").hidden) $("petPanel").hidden = false;
+  petDraw(); petCaption();
+}
+setInterval(() => {                    // say so when the pictures stop coming
+  if (PET.seen && Date.now() - PET.last > 4000 && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
+}, 2000);
+$("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
+$("petPng").addEventListener("click", () => { $("petCanvas").toBlob((bl) => { const a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = "pet.png"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); });
+$("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid").setAttribute("aria-pressed", PET.grid); petDraw(); });
+
 function onLine(line) {
   line = line.trim();
+  if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); return; }
   if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else onFrame(o); } catch (e) { /* a half line: wait for the next */ } }
   else if (line[0] === "#") cmdLog(line.slice(1).trim());
 }
@@ -1630,7 +1711,8 @@ async function connect() {
   S.mode = "serial"; setStatus("waiting", "Connected, waiting for data"); $("btnConnect").textContent = "Disconnect";
   const enc = new TextEncoderStream(); enc.readable.pipeTo(S.port.writable).catch(() => {}); S.writer = enc.writable.getWriter();
   const dec = new TextDecoderStream(); S.port.readable.pipeTo(dec.writable).catch(() => {}); S.reader = dec.readable.getReader();
-  const hello = () => send("nova hello");
+  PET.reset(); PET.ask = true; PET.probe = 2;   // a radio running a pet firmware answers; any other one is only asked a couple of times
+  const hello = () => { send("nova hello"); if (PET.ask) { send("nova pet"); if (!PET.seen && --PET.probe < 0) PET.ask = false; } };
   hello(); S.keep = setInterval(hello, 3000);
   let buf = "";
   try {
@@ -1649,6 +1731,7 @@ async function disconnect(lost) {
   try { if (S.writer) await S.writer.close(); } catch (e) {}
   try { if (S.port) await S.port.close(); } catch (e) {}
   S.port = S.reader = S.writer = null; S.mode = "off";
+  PET.ask = false;
   $("btnConnect").textContent = "Connect radio";
   setStatus("off", lost ? "Radio unplugged or closed" : "Not connected");
 }
