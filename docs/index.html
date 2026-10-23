@@ -844,6 +844,9 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 
 /* the pet screen mirror */
 #petPanel { margin-bottom: 14px; }
+.petname { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.petname input { width: 11em; }
+.petname .note { flex-basis: 100%; }
 .petscreen { background: #05080c; border-radius: 8px; padding: 10px; display: flex; justify-content: center; align-items: center; }
 .petscreen canvas { width: 100%; max-width: 1024px; height: auto; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block; }
 .petscreen:fullscreen { padding: 0; border-radius: 0; }
@@ -879,6 +882,12 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <button id="petFull">Full screen</button>
       <button id="petPng">Save picture</button>
       <button id="petGrid" aria-pressed="false">Pixel grid</button>
+    </div>
+    <div class="petname">
+      <label for="petNameIn">Name your pet</label>
+      <input id="petNameIn" type="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="up to 7 characters" disabled>
+      <button id="petNameSet" disabled>Set name</button>
+      <span class="note" id="petNameNote">It shows at the top of the radio's screen and here. Leave it empty and press Set to clear it. Names the pet on the screen right now.</span>
     </div>
   </section>
 
@@ -1117,7 +1126,7 @@ const PET = {
     if (!p || typeof p.d !== "string") return false;
     if (p.k) {
       this.fb = this.decode(p.d); this.seq = p.s;
-      if (p.n) this.meta = { n: p.n, x: p.x, m: p.m, c: p.c, i: p.i };
+      if (p.n) this.meta = { n: p.n, u: p.u || "", x: p.x, m: p.m, c: p.c, i: p.i };
     } else {
       if (this.seq < 0 || p.s !== this.seq + 1) { this.seq = -1; return false; }    // missed one: wait for the next key frame
       const d = this.decode(p.d); for (let i = 0; i < 1024; i++) this.fb[i] ^= d[i];
@@ -1140,10 +1149,14 @@ function petDraw() {
 }
 function petCaption() {
   const m = PET.meta, el = $("petCap"); if (!m) return;
-  const name = m.n.charAt(0).toUpperCase() + m.n.slice(1);
+  const kind = m.n.charAt(0).toUpperCase() + m.n.slice(1);
+  const name = m.u ? m.u + " the " + kind.toLowerCase() : kind;
   const age = m.m < 24 ? m.m + " months old" : (m.m % 12 ? Math.floor(m.m / 12) + " yr " + (m.m % 12) + " mo" : (m.m / 12) + " years old");
   el.textContent = name + " \u00b7 " + (m.x ? "female" : "male") + " \u00b7 " + age + (m.c > 1 ? " \u00b7 pet " + m.i + " of " + m.c : "");
   el.classList.remove("stale");
+  const inp = $("petNameIn");
+  if (inp.disabled) { inp.disabled = false; $("petNameSet").disabled = false; }
+  if (document.activeElement !== inp && inp.dataset.shown !== m.u + "|" + m.i) { inp.value = m.u; inp.dataset.shown = m.u + "|" + m.i; }
 }
 function petState(msg, bad) { const e = $("petState"); e.textContent = msg; e.classList.toggle("bad", !!bad); e.hidden = !msg; }
 function petAsk() {                    // called with every keep-alive while connected
@@ -1169,6 +1182,13 @@ setInterval(() => {                    // say so when the pictures stop coming
 $("btnPet").addEventListener("click", () => { $("petPanel").scrollIntoView({ behavior: "smooth", block: "start" }); $("petFull").focus({ preventScroll: true }); });
 $("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
 $("petPng").addEventListener("click", () => { $("petCanvas").toBlob((bl) => { const a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = "pet.png"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); });
+function petNameSend() {
+  const v = $("petNameIn").value.replace(/[^A-Za-z0-9 .\-_'!?]/g, "").trim().slice(0, 7);
+  send("nova petname " + (v || "-"));
+  $("petNameIn").dataset.shown = ""; cmdLog(v ? "Naming the pet " + v + "\u2026" : "Clearing the pet's name\u2026");
+}
+$("petNameSet").addEventListener("click", petNameSend);
+$("petNameIn").addEventListener("keydown", (e) => { if (e.key === "Enter") petNameSend(); });
 $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid").setAttribute("aria-pressed", PET.grid); petDraw(); });
 
 function onLine(line) {
