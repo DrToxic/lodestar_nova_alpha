@@ -843,7 +843,6 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .found-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
 
 /* the pet screen mirror */
-#petPanel[hidden] { display: none; }
 #petPanel { margin-bottom: 14px; }
 .petscreen { background: #05080c; border-radius: 8px; padding: 10px; display: flex; justify-content: center; align-items: center; }
 .petscreen canvas { width: 100%; max-width: 1024px; height: auto; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block; }
@@ -851,6 +850,8 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .petscreen:fullscreen canvas { max-width: none; width: 100vw; height: auto; max-height: 100vh; object-fit: contain; }
 .petbar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 10px 0 0; }
 .petbar .cap { flex: 1 1 240px; color: var(--ink2); font-weight: 600; }
+.petstate { margin: 0 0 10px; color: var(--ink2); }
+.petstate.bad { color: var(--bad); }
 .petbar .cap.stale { color: var(--muted); font-weight: 400; }
 </style>
 </head>
@@ -863,13 +864,15 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
     <button id="btnConnect" class="primary">Connect radio</button>
     <button id="btnDemo">Try sample data</button>
     <button id="btnSave" disabled>Save log</button>
+    <button id="btnPet" aria-label="Go to the pet screen">Pet</button>
     <button id="btnTheme" aria-label="Switch light or dark">Theme</button>
   </header>
 
   <p id="notice" hidden></p>
 
-  <section class="panel" id="petPanel" hidden aria-label="Your pet">
+  <section class="panel" id="petPanel" aria-label="Your pet">
     <h2>Your pet <span class="note">live from the radio's screen &middot; LODESTAR ORION + Pet firmware</span></h2>
+    <p class="petstate" id="petState">Connect your radio to see your pet here.</p>
     <div class="petscreen" id="petBox"><canvas id="petCanvas" width="1024" height="512" role="img" aria-label="The pet on the radio's screen, enlarged"></canvas></div>
     <div class="petbar">
       <span class="cap" id="petCap">Waiting for the pet&hellip;</span>
@@ -1122,7 +1125,7 @@ const PET = {
     }
     return true;
   },
-  reset() { this.seq = -1; this.seen = 0; this.meta = null; this.fb = new Uint8Array(1024); },
+  reset() { this.seq = -1; this.seen = 0; this.meta = null; this.fb = new Uint8Array(1024); this.asks = 0; this.nosupport = false; },
 };
 /*PET-END*/
 const petCtx = () => $("petCanvas").getContext("2d");
@@ -1142,16 +1145,28 @@ function petCaption() {
   el.textContent = name + " \u00b7 " + (m.x ? "female" : "male") + " \u00b7 " + age + (m.c > 1 ? " \u00b7 pet " + m.i + " of " + m.c : "");
   el.classList.remove("stale");
 }
+function petState(msg, bad) { const e = $("petState"); e.textContent = msg; e.classList.toggle("bad", !!bad); e.hidden = !msg; }
+function petAsk() {                    // called with every keep-alive while connected
+  send("nova pet");
+  PET.asks = (PET.asks || 0) + 1;
+  if (!PET.seen) {
+    if (PET.nosupport) petState("This radio's firmware has no pet. The pet needs the LODESTAR ORION + Pet firmware, version 0.3.0 or newer (see the pet repository).", true);
+    else if (PET.asks > 3) petState("No pet picture yet. The pet needs the LODESTAR ORION + Pet firmware, version 0.3.0 or newer, on a radio that has its own screen. Still asking\u2026", true);
+    else petState("Asking the radio for its pet\u2026");
+    if (PET.asks === 4) cmdLog("pet: no picture received yet (is this a pet firmware, 0.3.0 or newer?)");
+  }
+}
 function onPetLine(line) {
   let o; try { o = JSON.parse(line); } catch (e) { return; }
   if (!PET.apply(o.pet)) return;
-  PET.seen++; PET.last = Date.now();
-  if ($("petPanel").hidden) $("petPanel").hidden = false;
+  if (!PET.seen) cmdLog("pet: picture stream started");
+  PET.seen++; PET.last = Date.now(); petState("");
   petDraw(); petCaption();
 }
 setInterval(() => {                    // say so when the pictures stop coming
   if (PET.seen && Date.now() - PET.last > 4000 && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
 }, 2000);
+$("btnPet").addEventListener("click", () => { $("petPanel").scrollIntoView({ behavior: "smooth", block: "start" }); $("petFull").focus({ preventScroll: true }); });
 $("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
 $("petPng").addEventListener("click", () => { $("petCanvas").toBlob((bl) => { const a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = "pet.png"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); });
 $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid").setAttribute("aria-pressed", PET.grid); petDraw(); });
@@ -1160,7 +1175,7 @@ function onLine(line) {
   line = line.trim();
   if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); return; }
   if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else onFrame(o); } catch (e) { /* a half line: wait for the next */ } }
-  else if (line[0] === "#") cmdLog(line.slice(1).trim());
+  else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else cmdLog(t); }
 }
 
 /* ------------------------------------------------------------------ rendering */
@@ -1711,8 +1726,8 @@ async function connect() {
   S.mode = "serial"; setStatus("waiting", "Connected, waiting for data"); $("btnConnect").textContent = "Disconnect";
   const enc = new TextEncoderStream(); enc.readable.pipeTo(S.port.writable).catch(() => {}); S.writer = enc.writable.getWriter();
   const dec = new TextDecoderStream(); S.port.readable.pipeTo(dec.writable).catch(() => {}); S.reader = dec.readable.getReader();
-  PET.reset(); PET.ask = true; PET.probe = 2;   // a radio running a pet firmware answers; any other one is only asked a couple of times
-  const hello = () => { send("nova hello"); if (PET.ask) { send("nova pet"); if (!PET.seen && --PET.probe < 0) PET.ask = false; } };
+  PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet\u2026");
+  const hello = () => { send("nova hello"); if (PET.ask) petAsk(); };
   hello(); S.keep = setInterval(hello, 3000);
   let buf = "";
   try {
@@ -1731,7 +1746,7 @@ async function disconnect(lost) {
   try { if (S.writer) await S.writer.close(); } catch (e) {}
   try { if (S.port) await S.port.close(); } catch (e) {}
   S.port = S.reader = S.writer = null; S.mode = "off";
-  PET.ask = false;
+  PET.ask = false; PET.asks = 0; PET.nosupport = false; PET.seen = 0; petState("Connect your radio to see your pet here.");
   $("btnConnect").textContent = "Connect radio";
   setStatus("off", lost ? "Radio unplugged or closed" : "Not connected");
 }
