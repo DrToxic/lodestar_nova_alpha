@@ -856,6 +856,38 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .petstate { margin: 0 0 10px; color: var(--ink2); }
 .petstate.bad { color: var(--bad); }
 .petbar .cap.stale { color: var(--muted); font-weight: 400; }
+/* ---- mesh analyzer ---- */
+#meshPanel { margin-bottom: 12px; }
+.mtiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 4px 0 10px; }
+.mtile { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
+.mtile b { display: block; font: 600 12px var(--font-d); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.mtile span { font: 600 24px var(--font-d); color: var(--ink); }
+.mtile span small { font: 500 13px var(--font); color: var(--muted); margin-left: 4px; }
+.mtile i { display: block; font: 400 12px var(--font); color: var(--muted); font-style: normal; }
+.mbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+.mbar .chips { margin: 0; }
+.mgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.mcard { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 12px; min-width: 0; }
+.mcard.wide { grid-column: 1 / -1; }
+.mcard h3 { margin: 0 0 6px; font: 600 15px var(--font-d); }
+.mcard h3 .note { margin-left: 8px; font-weight: 400; }
+#mLegend .sw { border-radius: 50%; margin-right: 4px; vertical-align: -2px; }
+.mcard h3.sub { margin-top: 14px; }
+.mcard canvas { width: 100%; display: block; }
+.mhover { margin: 6px 0 0; min-height: 1.3em; font: 500 13px var(--font); color: var(--ink2); }
+.mbars .mrow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 48px; align-items: center; gap: 8px; margin: 3px 0; font: 500 13px var(--font); }
+.mbars .mtrack { height: 12px; background: var(--grid); border-radius: 6px; overflow: hidden; }
+.mbars .mfill { height: 100%; border-radius: 6px; min-width: 2px; }
+.mbars .mrow em { font-style: normal; text-align: right; color: var(--ink2); }
+.mscroll { overflow-x: auto; }
+.mtable { width: 100%; border-collapse: collapse; font: 500 13px var(--font); }
+.mtable th, .mtable td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.mtable th { font: 600 12px var(--font-d); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.mtable .n { text-align: right; font-variant-numeric: tabular-nums; }
+.mtable .mstr { width: 160px; }
+.mtable .mstr div { height: 10px; border-radius: 5px; background: var(--grid); overflow: hidden; }
+.mtable .mstr div i { display: block; height: 100%; border-radius: 5px; }
+@media (max-width: 760px) { .mgrid { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
@@ -888,6 +920,33 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <input id="petNameIn" type="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="up to 7 characters" disabled>
       <button id="petNameSet" disabled>Set name</button>
       <span class="note" id="petNameNote">It shows at the top of the radio's screen and here. Leave it empty and press Set to clear it. Names the pet on the screen right now.</span>
+    </div>
+  </section>
+
+  <section class="panel" id="meshPanel" aria-label="Mesh analyzer" hidden>
+    <h2>Mesh analyzer <span class="note" id="meshNote">every packet this radio hears, live &middot; LODESTAR ORION + Mesh Analyzer firmware</span></h2>
+    <div class="mtiles" id="mTiles"></div>
+    <div class="mbar">
+      <ul class="chips" id="mLegend" aria-label="Packet types"></ul>
+      <span class="spacer"></span>
+      <label for="mWin">Show</label>
+      <select id="mWin"><option value="60000">1 minute</option><option value="300000" selected>5 minutes</option><option value="900000">15 minutes</option><option value="3600000">1 hour</option></select>
+      <button id="mPause" aria-pressed="false">Pause</button>
+      <button id="mCsv">Save CSV</button>
+      <button id="mClear">Clear</button>
+    </div>
+    <div class="mgrid">
+      <div class="mcard wide"><h3>Signal strength over time <span class="note">each dot is one packet; the dashed line is the noise floor</span></h3>
+        <canvas id="mTime" data-h="240" role="img" aria-label="Signal strength of each packet heard over time"></canvas>
+        <p class="mhover" id="mHover">Move over a dot for details.</p></div>
+      <div class="mcard"><h3>Signal quality <span class="note">strength against clarity (SNR). Dots under the red line are too weak to decode</span></h3>
+        <canvas id="mQual" data-h="230" role="img" aria-label="Signal strength against SNR"></canvas></div>
+      <div class="mcard"><h3>What is on the air <span class="note" id="mTypeNote"></span></h3>
+        <div class="mbars" id="mTypes"></div>
+        <h3 class="sub">Hops the packets travelled</h3>
+        <div class="mbars" id="mHops"></div></div>
+      <div class="mcard wide"><h3>Who this radio hears <span class="note">the node each packet came from: the last repeater on its path, or the sender itself for a direct advert</span></h3>
+        <div class="mscroll"><table class="mtable" id="mSrc"><thead><tr><th>Heard from</th><th class="n">Packets</th><th class="n">Last</th><th class="n">Avg dBm</th><th class="n">Best dBm</th><th class="n">Avg SNR</th><th>Strength</th></tr></thead><tbody></tbody></table></div></div>
     </div>
   </section>
 
@@ -1191,8 +1250,154 @@ $("petNameSet").addEventListener("click", petNameSend);
 $("petNameIn").addEventListener("keydown", (e) => { if (e.key === "Enter") petNameSend(); });
 $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid").setAttribute("aria-pressed", PET.grid); petDraw(); });
 
+/* ------------------------------------------------------------------ mesh analyzer */
+const MTYPE = ["Request", "Response", "Direct message", "Ack", "Advert", "Channel message", "Channel data", "Anon request", "Path", "Trace", "Multipart", "Control", "?", "?", "?", "Raw"];
+const MCOL = { 4: "--s3", 2: "--s1", 5: "--s2", 3: "--s4", 0: "--s5", 1: "--s5", 8: "--s5" };
+const mcol = (t) => css(MCOL[t] || "--s6");
+const MESH = { recs: [], nf: [], cfg: { sf: 0, bw: 0, cr: 0 }, rx: 0, tx: 0, seen: 0, paused: false, dirty: true, hit: [], t0: 0 };
+const SNR_LIMIT = { 5: -2.5, 6: -5, 7: -7.5, 8: -10, 9: -12.5, 10: -15, 11: -17.5, 12: -20 };
+function airtimeMs(len, c) {      // LoRa time on air, explicit header, CRC on
+  if (!c.sf || !c.bw) return 0;
+  const tsym = Math.pow(2, c.sf) / c.bw, de = tsym > 16 ? 1 : 0, cr = c.cr >= 5 ? c.cr - 4 : c.cr || 1;
+  const n = 8 + Math.max(Math.ceil((8 * len - 4 * c.sf + 28 + 16) / (4 * (c.sf - 2 * de))) * (cr + 4), 0);
+  return (12.25 + n) * tsym;
+}
+function meshNameFor(id) {
+  if (!id) return "";
+  const up = id.toUpperCase(); let hit = null;
+  S.found.forEach((n) => { if (n.n && n.k.toUpperCase().startsWith(up) && (!hit || (n.t === 2 && hit.t !== 2))) hit = n; });
+  return hit ? hit.n : "";
+}
+function onMeshLine(line) {
+  let o; try { o = JSON.parse(line).mesh; } catch (e) { return; }
+  if (!o) return;
+  const now = Date.now();
+  MESH.seen = now; MESH.cfg = { sf: +o.sf || 0, bw: +o.bw || 0, cr: +o.cr || 0 };
+  MESH.rxTotal = +o.rx || 0; MESH.txTotal = +o.tx || 0; MESH.ty = o.ty || [];
+  if (typeof o.nf === "number" && o.nf !== 0) { const l = MESH.nf[MESH.nf.length - 1]; if (!l || l.v !== o.nf || now - l.t > 20000) MESH.nf.push({ t: now, v: o.nf }); if (MESH.nf.length > 2000) MESH.nf.shift(); }
+  (o.p || []).forEach((p) => {
+    const r = { t: now - p[0], rssi: p[1], snr: p[2] / 4, type: p[3], hops: p[4], len: p[5], rt: p[6], tx: !!p[7], id: p[8] || "", src: p[9] || "" };
+    MESH.recs.push(r);
+  });
+  if (MESH.recs.length > 6000) MESH.recs.splice(0, MESH.recs.length - 6000);
+  if (!MESH.t0) MESH.t0 = now;
+  const pp = $("meshPanel"); if (pp.hidden) { pp.hidden = false; }
+  MESH.dirty = true;
+}
+function mcanvas(id) {
+  const c = $(id), w = Math.max(160, Math.round(c.getBoundingClientRect().width)), h = +c.dataset.h || 220, d = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(w * d) || c.height !== Math.round(h * d)) { c.width = Math.round(w * d); c.height = Math.round(h * d); }
+  c.style.height = h + "px";
+  const g = c.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, w, h);
+  g.font = "12px " + css("--font"); return { g, w, h };
+}
+const mfmtT = (ms) => { const d = new Date(ms); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); };
+function meshDraw() {
+  if (MESH.paused || $("meshPanel").hidden) return;
+  const now = Date.now(), win = +$("mWin").value || 300000, from = now - win;
+  const rx = MESH.recs.filter((r) => !r.tx && r.t >= from), txr = MESH.recs.filter((r) => r.tx && r.t >= from);
+  const ink = css("--ink2"), mut = css("--muted"), grid = css("--grid"), bad = css("--bad");
+  // ---- tiles
+  const min1 = MESH.recs.filter((r) => r.t >= now - 60000), rx1 = min1.filter((r) => !r.tx), tx1 = min1.filter((r) => r.tx);
+  const avg = (a, f) => a.length ? a.reduce((s, x) => s + f(x), 0) / a.length : null;
+  const aR = avg(rx1, (r) => r.rssi), aS = avg(rx1, (r) => r.snr), best = rx1.length ? Math.max.apply(null, rx1.map((r) => r.rssi)) : null;
+  const busyRx = rx1.reduce((s, r) => s + airtimeMs(r.len, MESH.cfg), 0) / 600, busyTx = tx1.reduce((s, r) => s + airtimeMs(r.len, MESH.cfg), 0) / 600;   // % of 60 s
+  const nf = MESH.nf.length ? MESH.nf[MESH.nf.length - 1].v : null;
+  const srcs10 = new Set(MESH.recs.filter((r) => !r.tx && r.t >= now - 600000 && r.id).map((r) => r.id)).size;
+  const tile = (h, v, u, sub) => '<div class="mtile"><b>' + h + "</b><span>" + v + (u ? "<small>" + u + "</small>" : "") + "</span><i>" + sub + "</i></div>";
+  $("mTiles").innerHTML =
+    tile("Heard", rx1.length, "last minute", (MESH.rxTotal != null ? MESH.rxTotal : MESH.rx) + " since power-on, " + (MESH.txTotal || 0) + " sent") +
+    tile("Signal", aR == null ? "&ndash;" : Math.round(aR), aR == null ? "" : "dBm avg", best == null ? "nothing in the last minute" : "best " + best + " dBm") +
+    tile("Clarity", aS == null ? "&ndash;" : aS.toFixed(1), aS == null ? "" : "dB SNR", MESH.cfg.sf ? "SF" + MESH.cfg.sf + " can decode down to " + (SNR_LIMIT[MESH.cfg.sf] != null ? SNR_LIMIT[MESH.cfg.sf] : "?") + " dB" : "average of the last minute") +
+    tile("Noise floor", nf == null ? "&ndash;" : nf, nf == null ? "" : "dBm", aR != null && nf != null ? "signal sits " + Math.round(aR - nf) + " dB above it" : "the quiet level of the channel") +
+    tile("Channel busy", (busyRx + busyTx).toFixed(1), "%", "hearing " + busyRx.toFixed(1) + "%, sending " + busyTx.toFixed(1) + "%") +
+    tile("Nodes", srcs10, "heard", "different senders or repeaters, last 10 min");
+  // ---- legend
+  const counts = {}; rx.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
+  const types = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
+  $("mLegend").innerHTML = types.map((t) => '<li><span class="sw" style="background:' + mcol(t) + '"></span>' + MTYPE[t] + " " + counts[t] + "</li>").join("") + (txr.length ? '<li><span class="sw" style="background:transparent;border:2px solid ' + ink + '"></span>Sent ' + txr.length + "</li>" : "");
+  // ---- signal over time
+  { const { g, w, h } = mcanvas("mTime"), L = 46, R = 10, T = 8, B = 24;
+    let lo = -130, hi = -40;
+    if (rx.length) { const mn = Math.min.apply(null, rx.map((r) => r.rssi)), mx = Math.max.apply(null, rx.map((r) => r.rssi)); lo = Math.min(lo, Math.floor(mn / 10) * 10 - 10); hi = Math.max(hi, Math.ceil(mx / 10) * 10 + 5); }
+    const X = (t) => L + (t - from) / win * (w - L - R), Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (h - T - B);
+    g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
+    for (let v = Math.ceil(lo / 10) * 10; v <= hi; v += 10) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 6, Y(v)); }
+    g.textAlign = "center"; g.textBaseline = "top";
+    const step = win <= 60000 ? 10000 : win <= 300000 ? 60000 : win <= 900000 ? 180000 : 600000;
+    for (let t = Math.ceil(from / step) * step; t <= now; t += step) { g.fillText(win >= 300000 ? mfmtT(t).replace(/:\d\d(?=\s|$)/, "") : mfmtT(t), X(t), h - B + 6); g.beginPath(); g.moveTo(X(t) + .5, T); g.lineTo(X(t) + .5, h - B); g.stroke(); }
+    // noise floor
+    if (MESH.nf.length) { g.strokeStyle = bad; g.setLineDash([5, 4]); g.lineWidth = 1.5; g.beginPath(); let last = null;
+      MESH.nf.forEach((p) => { const x = Math.max(L, Math.min(w - R, X(p.t))); if (last == null) { g.moveTo(L, Y(p.v)); } else g.lineTo(x, Y(last)); g.lineTo(x, Y(p.v)); last = p.v; });
+      g.lineTo(w - R, Y(last)); g.stroke(); g.setLineDash([]); }
+    MESH.hit = [];
+    rx.forEach((r) => { const x = X(r.t), y = Y(r.rssi); g.fillStyle = mcol(r.type); g.globalAlpha = .85; g.beginPath(); g.arc(x, y, 3.5, 0, 6.2832); g.fill(); MESH.hit.push({ x, y, r }); });
+    g.globalAlpha = 1; g.strokeStyle = ink; g.lineWidth = 1.5;
+    txr.forEach((r) => { const x = X(r.t); g.beginPath(); g.moveTo(x, h - B - 9); g.lineTo(x, h - B); g.stroke(); MESH.hit.push({ x, y: h - B - 4, r }); });
+    if (!rx.length) { g.fillStyle = mut; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "14px " + css("--font"); g.fillText(MESH.recs.length ? "Nothing heard in this window." : "Waiting for the radio to hear something…", w / 2, h / 2); } }
+  // ---- quality map
+  { const { g, w, h } = mcanvas("mQual"), L = 40, R = 10, T = 8, B = 34, x0 = -130, x1 = -40, y0 = -25, y1 = 15;
+    const X = (v) => L + (v - x0) / (x1 - x0) * (w - L - R), Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (h - T - B);
+    g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
+    for (let v = -20; v <= 10; v += 10) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 6, Y(v)); }
+    g.textAlign = "center"; g.textBaseline = "top";
+    for (let v = -120; v <= -50; v += 20) { g.beginPath(); g.moveTo(X(v) + .5, T); g.lineTo(X(v) + .5, h - B); g.stroke(); g.fillText(v, X(v), h - B + 6); }
+    g.fillText("signal strength (dBm)", (L + w - R) / 2, h - 12); g.save(); g.translate(10, (T + h - B) / 2); g.rotate(-Math.PI / 2); g.fillText("SNR (dB)", 0, 0); g.restore();
+    const lim = SNR_LIMIT[MESH.cfg.sf]; if (lim != null) { g.strokeStyle = bad; g.lineWidth = 1.5; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(L, Y(lim)); g.lineTo(w - R, Y(lim)); g.stroke(); g.setLineDash([]); }
+    rx.slice(-400).forEach((r) => { g.fillStyle = mcol(r.type); g.globalAlpha = .75; g.beginPath(); g.arc(Math.max(L, Math.min(w - R, X(r.rssi))), Math.max(T, Math.min(h - B, Y(r.snr))), 3.2, 0, 6.2832); g.fill(); });
+    g.globalAlpha = 1; }
+  // ---- bars
+  const bar = (label, n, max, col) => '<div class="mrow"><span>' + label + '</span><div class="mtrack"><div class="mfill" style="width:' + Math.max(1, Math.round(n / (max || 1) * 100)) + "%;background:" + col + '"></div></div><em>' + n + "</em></div>";
+  const tmax = types.length ? counts[types[0]] : 1;
+  $("mTypes").innerHTML = types.length ? types.map((t) => bar(MTYPE[t], counts[t], tmax, mcol(t))).join("") : '<p class="note">Nothing yet.</p>';
+  $("mTypeNote").textContent = rx.length + " packets in this window";
+  const hc = [0, 0, 0, 0, 0, 0, 0]; rx.forEach((r) => { hc[Math.min(6, r.hops)]++; });
+  const hm = Math.max.apply(null, hc.concat([1]));
+  $("mHops").innerHTML = hc.map((n, i) => bar(i === 0 ? "direct" : i === 6 ? "6 or more" : i + (i === 1 ? " hop" : " hops"), n, hm, css("--s1"))).join("");
+  // ---- who we hear
+  const by = new Map();
+  rx.forEach((r) => { const k = r.id || "direct"; let e = by.get(k); if (!e) { e = { k, n: 0, last: 0, sum: 0, best: -999, snr: 0 }; by.set(k, e); } e.n++; e.last = Math.max(e.last, r.t); e.sum += r.rssi; e.best = Math.max(e.best, r.rssi); e.snr += r.snr; });
+  const rows = Array.from(by.values()).sort((a, b) => b.n - a.n).slice(0, 14);
+  $("mSrc").tBodies[0].innerHTML = rows.length ? rows.map((e) => {
+    const nm = e.k === "direct" ? "" : meshNameFor(e.k), a = Math.round(e.sum / e.n), pct = Math.max(2, Math.min(100, Math.round((a + 130) / 80 * 100)));
+    const col = a > -90 ? css("--s3") : a > -108 ? css("--s4") : css("--s2");
+    const ago = Math.round((now - e.last) / 1000);
+    return "<tr><td>" + (e.k === "direct" ? "<i>no sender shown (direct packet)</i>" : "<b>" + esc(nm || e.k) + "</b>" + (nm ? ' <span class="note">' + esc(e.k) + "</span>" : "")) + '</td><td class="n">' + e.n + '</td><td class="n">' + (ago < 90 ? ago + " s" : Math.round(ago / 60) + " min") + '</td><td class="n">' + a + '</td><td class="n">' + e.best + '</td><td class="n">' + (e.snr / e.n).toFixed(1) + '</td><td class="mstr"><div><i style="width:' + pct + "%;background:" + col + '"></i></div></td></tr>';
+  }).join("") : '<tr><td colspan="7" class="note">Nobody heard in this window.</td></tr>';
+}
+function meshCsv() {
+  const lines = ["time,direction,type,rssi_dbm,snr_db,hops,length_bytes,heard_from,origin_hash"];
+  MESH.recs.forEach((r) => lines.push([new Date(r.t).toISOString(), r.tx ? "sent" : "heard", MTYPE[r.type], r.tx ? "" : r.rssi, r.tx ? "" : r.snr.toFixed(2), r.hops, r.len, r.id, r.src].join(",")));
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = "mesh-analyzer-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
+}
+$("mWin").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
+$("mPause").addEventListener("click", () => { MESH.paused = !MESH.paused; $("mPause").setAttribute("aria-pressed", MESH.paused); $("mPause").textContent = MESH.paused ? "Resume" : "Pause"; if (!MESH.paused) meshDraw(); });
+$("mCsv").addEventListener("click", meshCsv);
+$("mClear").addEventListener("click", () => { MESH.recs = []; MESH.nf = []; MESH.dirty = true; meshDraw(); });
+$("mTime").addEventListener("mousemove", (e) => {
+  const b = $("mTime").getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top; let best = null, bd = 14;
+  MESH.hit.forEach((p) => { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = p; } });
+  if (!best) return; const r = best.r, nm = meshNameFor(r.id);
+  $("mHover").textContent = mfmtT(r.t) + " · " + (r.tx ? "sent " : "") + MTYPE[r.type] + (r.tx ? "" : " · " + r.rssi + " dBm · SNR " + r.snr.toFixed(1) + " dB") + " · " + (r.hops ? r.hops + " hop" + (r.hops > 1 ? "s" : "") : "direct") + " · " + r.len + " bytes" + (r.id ? " · from " + (nm ? nm + " (" + r.id + ")" : r.id) : "");
+});
+setInterval(() => { const pp = $("petPanel"); if (pp) pp.hidden = !!(MESH.seen && Date.now() - MESH.seen < 8000 && !PET.seen && PET.asks > 3);   // a build without a pet has nothing to show there
+  if ($("meshPanel").hidden) return; if (MESH.seen && Date.now() - MESH.seen > 8000) $("meshNote").textContent = "no data from the radio for a while"; else $("meshNote").textContent = "every packet this radio hears, live · LODESTAR ORION + Mesh Analyzer firmware"; meshDraw(); }, 1000);
+window.addEventListener("resize", () => { MESH.dirty = true; meshDraw(); });
+function demoMesh(D) {            // made-up packets for the sample data
+  const now = Date.now(); D.m = D.m || { nf: -112 };
+  const ids = ["a1b2c3", "3f00aa", "7c19e0", "d4ff00", "11aa22"], base = [-82, -97, -104, -114, -88];
+  const n = Math.random() < .7 ? 0 : 1 + Math.floor(Math.random() * 2), p = [];
+  for (let i = 0; i < n; i++) { const k = Math.floor(Math.random() * ids.length), rs = Math.round(base[k] + (Math.random() - .5) * 10), tp = [4, 2, 5, 5, 3, 0, 8][Math.floor(Math.random() * 7)], hops = k > 2 ? 1 + Math.floor(Math.random() * 3) : Math.floor(Math.random() * 2);
+    p.push([Math.floor(Math.random() * 900), rs, Math.round((rs + 112 + (Math.random() - .5) * 8) * 4 / 3.2), tp, hops, 30 + Math.floor(Math.random() * 120), 1, 0, ids[k], ""]); }
+  if (Math.random() < .12) p.push([300, 0, 0, 5, 0, 60, 1, 1, "", ""]);
+  D.m.nf += Math.round((Math.random() - .5) * 2); D.m.nf = Math.max(-118, Math.min(-104, D.m.nf));
+  D.m.rx = (D.m.rx || 0) + p.filter((x) => !x[7]).length; D.m.tx = (D.m.tx || 0) + p.filter((x) => x[7]).length;
+  onMeshLine(JSON.stringify({ mesh: { nf: D.m.nf, sf: 10, bw: 250, cr: 5, rx: D.m.rx, tx: D.m.tx, ty: [], p } }));
+}
+
 function onLine(line) {
   line = line.trim();
+  if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); return; }
   if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); return; }
   if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else onFrame(o); } catch (e) { /* a half line: wait for the next */ } }
   else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else cmdLog(t); }
@@ -1773,8 +1978,9 @@ async function connect() {
   S.mode = "serial"; setStatus("waiting", "Connected, waiting for data"); $("btnConnect").textContent = "Disconnect";
   const enc = new TextEncoderStream(); enc.readable.pipeTo(S.port.writable).catch(() => {}); S.writer = enc.writable.getWriter();
   const dec = new TextDecoderStream(); S.port.readable.pipeTo(dec.writable).catch(() => {}); S.reader = dec.readable.getReader();
+  MESH.asks = 0; MESH.seen = 0;
   PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet\u2026");
-  const hello = () => { send("nova hello"); if (PET.ask) petAsk(); };
+  const hello = () => { send("nova hello"); if (MESH.seen || (MESH.asks = (MESH.asks || 0) + 1) <= 3) send("nova mesh"); if (PET.ask) petAsk(); };   /* a firmware without the analyzer is only asked three times */;
   hello(); S.keep = setInterval(hello, 3000);
   let buf = "";
   try {
@@ -1814,9 +2020,10 @@ function startDemo() {
     { k: "33CC44DD55EE", t: 1, n: "Net control", d: [0.0004, 0.0036] }, { k: "44DD55EE66FF", t: 1, n: "Ola", d: [-0.0030, 0.0005], hide: true } ];
   for (let i = 150; i > 0; i--) { D.n++; onFrame(demoFrame(D), Date.now() - i * 6000); demoFinds(D); }   // a little history, so the charts have something to show
   D.timer = setInterval(() => { D.n++; onFrame(demoFrame(D)); demoFinds(D); }, 1000);
+  D.mtimer = setInterval(() => demoMesh(D), 500);
 }
 function stopDemo() {
-  if (S.demo) { clearInterval(S.demo.timer); S.demo = null; }
+  if (S.demo) { clearInterval(S.demo.timer); clearInterval(S.demo.mtimer); S.demo = null; }
   if (S.mode === "demo") { S.mode = "off"; setStatus("off", "Not connected"); notice(""); loadStored(); _routeShown = -1; S.fitted = false; rebuildNodeLayers(); renderFoundPanel(); renderLiveMap(S.frame || {}); }
 }
 function demoFinds(D) {
