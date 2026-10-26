@@ -951,6 +951,10 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <div class="mbars" id="mTypes"></div>
         <h3 class="sub">Hops the packets travelled</h3>
         <div class="mbars" id="mHops"></div></div>
+      <div class="mcard"><h3>Traffic history <span class="note">stacked packets by type across the selected window</span></h3>
+        <canvas id="mTraffic" data-h="210" role="img" aria-label="Packet traffic over time, stacked by packet type"></canvas>
+        <h3 class="sub">Hop history <span class="note">stacked by path length</span></h3>
+        <canvas id="mHopTrend" data-h="180" role="img" aria-label="Packet hops over time, stacked by hop count"></canvas></div>
       <div class="mcard wide"><h3>Who this radio hears <span class="note">the node each packet came from: the last repeater on its path, or the sender itself for a direct advert</span></h3>
         <div class="mscroll"><table class="mtable" id="mSrc"><thead><tr><th>Heard from</th><th class="n">Packets</th><th class="n">Last</th><th class="n">Avg dBm</th><th class="n">Best dBm</th><th class="n">Avg SNR</th><th>Strength</th></tr></thead><tbody></tbody></table></div></div>
     </div>
@@ -1326,7 +1330,7 @@ function meshDraw() {
     tile("Signal", aR == null ? "&ndash;" : Math.round(aR), aR == null ? "" : "dBm avg", best == null ? "nothing in the last minute" : "best " + best + " dBm") +
     tile("Clarity", aS == null ? "&ndash;" : aS.toFixed(1), aS == null ? "" : "dB SNR", MESH.cfg.sf ? "SF" + MESH.cfg.sf + " can decode down to " + (SNR_LIMIT[MESH.cfg.sf] != null ? SNR_LIMIT[MESH.cfg.sf] : "?") + " dB" : "average of the last minute") +
     tile("Noise floor", nf == null ? "&ndash;" : nf, nf == null ? "" : "dBm", aR != null && nf != null ? "signal sits " + Math.round(aR - nf) + " dB above it" : "the quiet level of the channel") +
-    tile("Channel busy", (busyRx + busyTx).toFixed(1), "%", "hearing " + busyRx.toFixed(1) + "%, sending " + busyTx.toFixed(1) + "%") +
+    tile("Observed airtime", (busyRx + busyTx).toFixed(1), "%", "heard " + busyRx.toFixed(1) + "% + sent " + busyTx.toFixed(1) + "% · not a spectrum reading") +
     tile("Nodes", srcs10, "heard", "different senders or repeaters, last 10 min");
   // ---- legend
   const counts = {}; rx.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
@@ -1378,6 +1382,20 @@ function meshDraw() {
   const hc = [0, 0, 0, 0, 0, 0, 0]; rx.forEach((r) => { hc[Math.min(6, r.hops)]++; });
   const hm = Math.max.apply(null, hc.concat([1]));
   $("mHops").innerHTML = hc.map((n, i) => bar(i === 0 ? "direct" : i === 6 ? "6 or more" : i + (i === 1 ? " hop" : " hops"), n, hm, css("--s1"))).join("");
+  // ---- stacked history: these are packet observations, not a measurement of all RF activity.
+  const trend = (id, hgt, key, label, colour) => {
+    const { g, w, h } = mcanvas(id), L = 32, R = 10, T = 8, B = 24, bins = Math.max(6, Math.min(30, Math.round(w / 34)));
+    const sets = Array.from({ length: bins }, () => ({}));
+    rx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - from) / win * bins))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
+    const tops = sets.map((b) => Object.values(b).reduce((n, v) => n + v, 0)), top = Math.max(1, ...tops), step = Math.max(1, Math.ceil(top / 4));
+    const Y = (v) => T + (1 - v / (step * 4)) * (h - T - B), bw = (w - L - R) / bins;
+    g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
+    for (let v = 0; v <= step * 4; v += step) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 5, Y(v)); }
+    sets.forEach((b, i) => { let base = 0; Object.keys(b).sort((a, z) => +a - +z).forEach((k) => { const n = b[k], y = Y(base + n); g.fillStyle = colour(+k); g.fillRect(L + i * bw + 1, y, Math.max(1, bw - 2), Y(base) - y); base += n; }); });
+    g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = mut; g.fillText(mfmtT(from), L, h - B + 6); g.fillText(mfmtT(now), w - R, h - B + 6); g.textAlign = "left"; g.fillText(label, L + 4, T + 3);
+  };
+  trend("mTraffic", 210, (r) => r.type, "packets", (k) => mcol(k));
+  trend("mHopTrend", 180, (r) => Math.min(6, r.hops), "packets", (k) => k === 0 ? css("--s3") : css("--s1"));
   // ---- who we hear
   const by = new Map();
   rx.forEach((r) => { const k = r.id || "direct"; let e = by.get(k); if (!e) { e = { k, n: 0, last: 0, sum: 0, best: -999, snr: 0 }; by.set(k, e); } e.n++; e.last = Math.max(e.last, r.t); e.sum += r.rssi; e.best = Math.max(e.best, r.rssi); e.snr += r.snr; });
