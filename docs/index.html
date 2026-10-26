@@ -962,6 +962,9 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <div class="mbars" id="mHops"></div></div>
       <div class="mcard wide"><h3>Traffic history <span class="note" id="mHistoryNote">clock-aligned packet bins; scroll for older history</span></h3>
         <div class="mtrend-scroll"><canvas id="mTraffic" data-h="230" data-bins="72" role="img" aria-label="Packet traffic history, stacked by packet type"></canvas></div>
+        <h3 class="sub">Observed / estimated free airtime <span class="note">decoded packet airtime only</span></h3>
+        <div class="mtrend-scroll"><canvas id="mAirtime" data-h="200" data-bins="72" role="img" aria-label="Observed and estimated free airtime history"></canvas></div>
+        <p class="note" id="mAirNote"></p>
         <h3 class="sub">Hop history <span class="note">stacked by path length</span></h3>
         <div class="mtrend-scroll"><canvas id="mHopTrend" data-h="200" data-bins="72" role="img" aria-label="Packet hop history, stacked by hop count"></canvas></div></div>
       <div class="mcard wide"><h3>Who this radio hears <span class="note">the node each packet came from: the last repeater on its path, or the sender itself for a direct advert</span></h3>
@@ -1340,6 +1343,7 @@ function meshDraw() {
     tile("Clarity", aS == null ? "&ndash;" : aS.toFixed(1), aS == null ? "" : "dB SNR", MESH.cfg.sf ? "SF" + MESH.cfg.sf + " can decode down to " + (SNR_LIMIT[MESH.cfg.sf] != null ? SNR_LIMIT[MESH.cfg.sf] : "?") + " dB" : "average of the last minute") +
     tile("Noise floor", nf == null ? "&ndash;" : nf, nf == null ? "" : "dBm", aR != null && nf != null ? "signal sits " + Math.round(aR - nf) + " dB above it" : "the quiet level of the channel") +
     tile("Observed airtime", (busyRx + busyTx).toFixed(1), "%", "heard " + busyRx.toFixed(1) + "% + sent " + busyTx.toFixed(1) + "% · not a spectrum reading") +
+    tile("Free-airtime estimate", Math.max(0, 100 - busyRx - busyTx).toFixed(1), "%", "last minute · 100% minus decoded heard + sent packet time") +
     tile("Nodes", srcs10, "heard", "different senders or repeaters, last 10 min");
   // ---- packet types; the coloured bars are also the composition key.
   const counts = {}; rx.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
@@ -1419,6 +1423,18 @@ function meshDraw() {
     g.textAlign = "left"; g.textBaseline = "top"; g.fillText(label, L + 4, T + 3);
   };
   trend("mTraffic", 210, (r) => r.type, "packets", (k) => mcol(k));
+  // Airtime uses every decoded record (heard and sent); grey is the remainder of that bin, not measured RF silence.
+  { const { g, w, h } = mcanvas("mAirtime"), L = 32, R = 10, T = 8, B = 54, bins = histBins, ms = Array(bins).fill(0);
+    MESH.recs.filter((r) => r.t >= histFrom && r.t < histTo).forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / binMs))); ms[i] += airtimeMs(r.len, MESH.cfg); });
+    const Y = (v) => T + (1 - v / 100) * (h - T - B), bw = (w - L - R) / bins;
+    g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
+    [0, 50, 100].forEach((v) => { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v + "%", L - 5, Y(v)); });
+    ms.forEach((v, i) => { const p = Math.max(0, Math.min(100, v / binMs * 100)), x = L + i * bw + 1; g.fillStyle = grid; g.fillRect(x, T, Math.max(1, bw - 2), h - T - B); g.fillStyle = css("--s1"); g.fillRect(x, Y(p), Math.max(1, bw - 2), Y(0) - Y(p)); });
+    g.fillStyle = mut; g.font = "11px " + css("--font"); g.textAlign = "right"; g.textBaseline = "middle";
+    for (let i = 0; i < bins; i++) { const x = L + (i + .5) * bw; g.save(); g.translate(x + 5, h - B + 8); g.rotate(-Math.PI / 3); g.fillText(mfmtT(histFrom + i * binMs), 0, 0); g.restore(); }
+    g.textAlign = "left"; g.textBaseline = "top"; g.fillText("observed", L + 4, T + 3);
+    $("mAirNote").textContent = MESH.cfg.sf && MESH.cfg.bw ? "Blue is decoded packet airtime heard + sent; grey is the remaining estimate. Missed/colliding/other-radio traffic is not visible, so this is not a spectrum or compliance meter." : "Airtime estimate needs the radio's spreading factor and bandwidth.";
+  }
   trend("mHopTrend", 180, (r) => Math.min(6, r.hops), "packets", (k) => k === 0 ? css("--s3") : css("--s1"));
   // ---- who we hear
   const by = new Map();
