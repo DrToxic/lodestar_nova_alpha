@@ -1130,7 +1130,8 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtDur = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60; return h ? h + "h " + String(m).padStart(2, "0") + "m" : m + "m " + String(s % 60).padStart(2, "0") + "s"; };
-const fmtAge = (s) => (s < 90 ? s + "s" : s < 5400 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h");
+const N = (v) => (Number.isFinite(+v) ? +v : 0);        // anything the radio sends that is shown as a number goes through this
+const fmtAge = (s) => { s = N(s); return s < 90 ? s + "s" : s < 5400 ? Math.round(s / 60) + "m" : (s / 3600).toFixed(1) + "h"; };
 function el(tag, attrs, parent) { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
 function safeStore(op, k, v) { try { return op === "get" ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (e) { return null; } }
 
@@ -1276,7 +1277,9 @@ function onMeshLine(line) {
   MESH.rxTotal = +o.rx || 0; MESH.txTotal = +o.tx || 0; MESH.ty = o.ty || [];
   if (typeof o.nf === "number" && o.nf !== 0) { const l = MESH.nf[MESH.nf.length - 1]; if (!l || l.v !== o.nf || now - l.t > 20000) MESH.nf.push({ t: now, v: o.nf }); if (MESH.nf.length > 2000) MESH.nf.shift(); }
   (o.p || []).forEach((p) => {
-    const r = { t: now - p[0], rssi: p[1], snr: p[2] / 4, type: p[3], hops: p[4], len: p[5], rt: p[6], tx: !!p[7], id: p[8] || "", src: p[9] || "" };
+    if (!Array.isArray(p)) return;
+    const hex = (v) => String(v == null ? "" : v).replace(/[^0-9a-fA-F]/g, "").slice(0, 6).toLowerCase();   // ids are hex and nothing else
+    const r = { t: now - N(p[0]), rssi: N(p[1]), snr: N(p[2]) / 4, type: N(p[3]) & 15, hops: Math.max(0, N(p[4]) | 0), len: N(p[5]), rt: N(p[6]) & 3, tx: !!p[7], id: hex(p[8]), src: hex(p[9]) };
     MESH.recs.push(r);
   });
   if (MESH.recs.length > 6000) MESH.recs.splice(0, MESH.recs.length - 6000);
@@ -1411,20 +1414,20 @@ function render() {
 
   // readouts
   if (best) {
-    $("rUp").innerHTML = esc(best.id) + '<span class="u">score ' + best.sc + '</span>';
+    $("rUp").innerHTML = esc(best.id) + '<span class="u">score ' + N(best.sc) + '</span>';
     const tr = trend();
     $("rUpSub").textContent = (tr > 0 ? "Getting better" : tr < 0 ? "Getting worse" : "Holding steady") + " · " + links.length + " heard";
   } else {
     $("rUp").innerHTML = "None";
     $("rUpSub").textContent = links.length ? "No repeater is good enough yet (" + links.length + " heard)" : "Nothing heard yet";
   }
-  if (g.fix) { $("rSpd").innerHTML = (g.spd != null ? g.spd : g.kmh) + '<span class="u">' + (f.unit || "km/h") + '</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + g.course + "°" : "") + ", " + g.sats + " satellites"; }
+  if (g.fix) { $("rSpd").innerHTML = N(g.spd != null ? g.spd : g.kmh) + '<span class="u">' + esc(f.unit || "km/h") + '</span>'; $("rSpdSub").textContent = (g.mov ? "Moving" : "Stopped") + (g.course != null ? ", heading " + N(g.course) + "°" : "") + ", " + N(g.sats) + " satellites"; }
   else { $("rSpd").innerHTML = "&ndash;"; $("rSpdSub").textContent = "No GPS fix. Turn GPS on from the phone app or the GPS screen."; }
   if (b.pct != null && b.pct >= 0) {
-    $("rBat").innerHTML = b.pct + '<span class="u">%</span>';
+    $("rBat").innerHTML = N(b.pct) + '<span class="u">%</span>';
     $("rBatSub").textContent = (b.mv / 1000).toFixed(2) + " V" + (b.chg ? ", charging" : b.hrs != null ? ", about " + (b.hrs >= 99 ? "99+" : b.hrs.toFixed(1)) + " h left" : b.trend != null ? ", " + b.trend.toFixed(1) + " %/h" : "");
   } else { $("rBat").innerHTML = "&ndash;"; $("rBatSub").textContent = "No reading yet"; }
-  $("rDl").innerHTML = (d.ok || 0) + '<span class="u">of ' + (d.sent || 0) + '</span>';
+  $("rDl").innerHTML = N(d.ok) + '<span class="u">of ' + N(d.sent) + '</span>';
   $("rDlSub").textContent = (d.fail || 0) ? d.fail + " failed" : (d.sent ? "None failed" : "Nothing sent yet");
 
   renderLinks(links);
@@ -1450,9 +1453,9 @@ function renderLinks(links) {
   $("linkNote").textContent = links.length ? "strongest first" : "";
   $("tblBody").innerHTML = links.map((l) => '<tr class="' + (l.best ? "best" : "") + '"><td><span class="id">' + esc(l.id) + '</span></td>' +
     '<td class="nm">' + (l.name ? esc(l.name) : '<span class="dim">unknown</span>') + '</td>' +
-    '<td><span class="bar-track"><span class="bar-fill" style="width:' + l.sc + '%"></span></span>' + l.sc + '</td>' +
-    '<td class="r">' + l.rel + '</td><td class="r">' + l.lq + '</td><td class="r">' + l.snr.toFixed(1) + ' dB</td><td class="r">' + l.rssi + '</td>' +
-    '<td class="r">' + fmtAge(l.age) + ' ago</td><td class="r">' + (l.n ? l.hit + "/" + l.n : "–") + '</td></tr>').join("");
+    '<td><span class="bar-track"><span class="bar-fill" style="width:' + Math.max(0, Math.min(100, N(l.sc))) + '%"></span></span>' + N(l.sc) + '</td>' +
+    '<td class="r">' + N(l.rel) + '</td><td class="r">' + N(l.lq) + '</td><td class="r">' + N(l.snr).toFixed(1) + ' dB</td><td class="r">' + N(l.rssi) + '</td>' +
+    '<td class="r">' + fmtAge(l.age) + ' ago</td><td class="r">' + (N(l.n) ? N(l.hit) + "/" + N(l.n) : "–") + '</td></tr>').join("");
 }
 
 /* ---- generic line chart --------------------------------------------------- */
@@ -1948,11 +1951,13 @@ function compass(deg) { return ["north", "north-east", "east", "south-east", "so
 function renderDeliveries(d) {
   const list = d.list || [];
   $("dlEmpty").hidden = list.length > 0;
-  $("dlCounts").innerHTML = '<span><b>' + (d.sent || 0) + '</b> sent</span><span><b>' + (d.rep || 0) + '</b> repeated</span><span><b>' + (d.ok || 0) + '</b> delivered</span><span><b>' + (d.fail || 0) + '</b> failed</span>';
+  $("dlCounts").innerHTML = '<span><b>' + N(d.sent) + '</b> sent</span><span><b>' + N(d.rep) + '</b> repeated</span><span><b>' + N(d.ok) + '</b> delivered</span><span><b>' + N(d.fail) + '</b> failed</span>';
   const ICON = { sent: "…", repeated: "↻", delivered: "✓", failed: "✕" };
   $("dlList").innerHTML = list.map((x) => {
-    let what = x.st === "delivered" ? "Delivered in " + (x.rtt / 1000).toFixed(1) + " s" : x.st === "repeated" ? (x.chan ? "Channel message heard by repeater " : "Picked up by repeater ") + (x.via >= 0 ? x.via.toString(16).toUpperCase().padStart(2, "0") : "") : x.st === "failed" && x.chan ? "No repeater heard it" : x.st === "failed" ? (x.link ? "No acknowledgement" : "No acknowledgement, no uplink at the time") : "On its way, " + x.age + " s";
-    return '<li class="' + x.st + '"><span class="ico" aria-hidden="true">' + ICON[x.st] + '</span><span><span class="who">' + esc(x.who) + '</span> <span class="what">' + esc(what) + '</span></span><span class="what">' + fmtAge(x.age) + " ago</span></li>";
+    const st = Object.prototype.hasOwnProperty.call(ICON, x.st) ? x.st : "sent";      // only the four known states can reach the class attribute
+    const via = N(x.via);
+    let what = st === "delivered" ? "Delivered in " + (N(x.rtt) / 1000).toFixed(1) + " s" : st === "repeated" ? (x.chan ? "Channel message heard by repeater " : "Picked up by repeater ") + (via >= 0 ? via.toString(16).toUpperCase().padStart(2, "0") : "") : st === "failed" && x.chan ? "No repeater heard it" : st === "failed" ? (x.link ? "No acknowledgement" : "No acknowledgement, no uplink at the time") : "On its way, " + N(x.age) + " s";
+    return '<li class="' + st + '"><span class="ico" aria-hidden="true">' + ICON[st] + '</span><span><span class="who">' + esc(x.who) + '</span> <span class="what">' + esc(what) + '</span></span><span class="what">' + fmtAge(x.age) + " ago</span></li>";
   }).join("");
 }
 function renderDiag(f) {
