@@ -937,6 +937,8 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <select id="mWin"><option value="60000">1 minute</option><option value="300000" selected>5 minutes</option><option value="900000">15 minutes</option><option value="3600000">1 hour</option></select>
       <label for="mScale">Scale</label>
       <select id="mScale" aria-label="Signal chart scale"><option value="auto" selected>Automatic</option><option value="reference">Reference range</option></select>
+      <label for="mHistory">History</label>
+      <select id="mHistory" aria-label="Traffic history window"><option value="rolling" selected>Rolling</option><option value="clock">Clock-aligned</option></select>
       <button id="mPause" aria-pressed="false">Pause</button>
       <button id="mCsv">Save CSV</button>
       <button id="mClear">Clear</button>
@@ -1382,17 +1384,20 @@ function meshDraw() {
   const hc = [0, 0, 0, 0, 0, 0, 0]; rx.forEach((r) => { hc[Math.min(6, r.hops)]++; });
   const hm = Math.max.apply(null, hc.concat([1]));
   $("mHops").innerHTML = hc.map((n, i) => bar(i === 0 ? "direct" : i === 6 ? "6 or more" : i + (i === 1 ? " hop" : " hops"), n, hm, css("--s1"))).join("");
-  // ---- stacked history: these are packet observations, not a measurement of all RF activity.
+  // ---- stacked history: rolling windows follow "now"; clock-aligned intervals reset at a clean boundary.
+  // Both chart packet observations only, not a measurement of all RF activity.
+  const histClock = $("mHistory").value === "clock", histFrom = histClock ? Math.floor(now / win) * win : from, histTo = histClock ? histFrom + win : now;
+  const histRx = MESH.recs.filter((r) => !r.tx && r.t >= histFrom && r.t < histTo);
   const trend = (id, hgt, key, label, colour) => {
     const { g, w, h } = mcanvas(id), L = 32, R = 10, T = 8, B = 24, bins = Math.max(6, Math.min(30, Math.round(w / 34)));
     const sets = Array.from({ length: bins }, () => ({}));
-    rx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - from) / win * bins))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
+    histRx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / win * bins))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
     const tops = sets.map((b) => Object.values(b).reduce((n, v) => n + v, 0)), top = Math.max(1, ...tops), step = Math.max(1, Math.ceil(top / 4));
     const Y = (v) => T + (1 - v / (step * 4)) * (h - T - B), bw = (w - L - R) / bins;
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
     for (let v = 0; v <= step * 4; v += step) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 5, Y(v)); }
     sets.forEach((b, i) => { let base = 0; Object.keys(b).sort((a, z) => +a - +z).forEach((k) => { const n = b[k], y = Y(base + n); g.fillStyle = colour(+k); g.fillRect(L + i * bw + 1, y, Math.max(1, bw - 2), Y(base) - y); base += n; }); });
-    g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = mut; g.fillText(mfmtT(from), L, h - B + 6); g.fillText(mfmtT(now), w - R, h - B + 6); g.textAlign = "left"; g.fillText(label, L + 4, T + 3);
+    g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = mut; g.fillText(mfmtT(histFrom), L, h - B + 6); g.fillText(histClock ? mfmtT(histTo) : "now", w - R, h - B + 6); g.textAlign = "left"; g.fillText(label, L + 4, T + 3);
   };
   trend("mTraffic", 210, (r) => r.type, "packets", (k) => mcol(k));
   trend("mHopTrend", 180, (r) => Math.min(6, r.hops), "packets", (k) => k === 0 ? css("--s3") : css("--s1"));
@@ -1414,6 +1419,7 @@ function meshCsv() {
 }
 $("mWin").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mScale").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
+$("mHistory").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mPause").addEventListener("click", () => { MESH.paused = !MESH.paused; $("mPause").setAttribute("aria-pressed", MESH.paused); $("mPause").textContent = MESH.paused ? "Resume" : "Pause"; if (!MESH.paused) meshDraw(); });
 $("mCsv").addEventListener("click", meshCsv);
 $("mClear").addEventListener("click", () => { MESH.recs = []; MESH.nf = []; MESH.dirty = true; meshDraw(); });
