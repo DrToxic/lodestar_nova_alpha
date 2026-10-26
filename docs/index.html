@@ -880,7 +880,7 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .mcard h3.sub { margin-top: 14px; }
 .mcard canvas { width: 100%; display: block; }
 .mhover { margin: 6px 0 0; min-height: 1.3em; font: 500 13px var(--font); color: var(--ink2); }
-.mbars .mrow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 48px; align-items: center; gap: 8px; margin: 3px 0; font: 500 13px var(--font); }
+.mbars .mrow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 76px; align-items: center; gap: 8px; margin: 3px 0; font: 500 13px var(--font); }
 .mbars .mtrack { height: 12px; background: var(--grid); border-radius: 6px; overflow: hidden; }
 .mbars .mfill { height: 100%; border-radius: 6px; min-width: 2px; }
 .mbars .mrow em { font-style: normal; text-align: right; color: var(--ink2); }
@@ -932,7 +932,6 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
     <h2>Mesh analyzer <span class="note" id="meshNote">every packet this radio hears, live &middot; LODESTAR ORION + Mesh Analyzer firmware</span></h2>
     <div class="mtiles" id="mTiles"></div>
     <div class="mbar">
-      <ul class="chips" id="mLegend" aria-label="Packet types"></ul>
       <span class="spacer"></span>
       <label for="mWin">Show</label>
       <select id="mWin"><option value="60000">1 minute</option><option value="300000" selected>5 minutes</option><option value="900000">15 minutes</option><option value="3600000">1 hour</option></select>
@@ -1338,10 +1337,9 @@ function meshDraw() {
     tile("Noise floor", nf == null ? "&ndash;" : nf, nf == null ? "" : "dBm", aR != null && nf != null ? "signal sits " + Math.round(aR - nf) + " dB above it" : "the quiet level of the channel") +
     tile("Observed airtime", (busyRx + busyTx).toFixed(1), "%", "heard " + busyRx.toFixed(1) + "% + sent " + busyTx.toFixed(1) + "% · not a spectrum reading") +
     tile("Nodes", srcs10, "heard", "different senders or repeaters, last 10 min");
-  // ---- legend
+  // ---- packet types; the coloured bars are also the composition key.
   const counts = {}; rx.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
   const types = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
-  $("mLegend").innerHTML = types.map((t) => '<li><span class="sw" style="background:' + mcol(t) + '"></span>' + MTYPE[t] + " " + counts[t] + "</li>").join("") + (txr.length ? '<li><span class="sw" style="background:transparent;border:2px solid ' + ink + '"></span>Sent ' + txr.length + "</li>" : "");
   // ---- signal over time
   { const { g, w, h } = mcanvas("mTime"), L = 46, R = 10, T = 8, B = 24;
     let lo = -130, hi = -40;
@@ -1381,16 +1379,16 @@ function meshDraw() {
     rx.slice(-400).forEach((r) => { g.fillStyle = mcol(r.type); g.globalAlpha = .75; g.beginPath(); g.arc(Math.max(L, Math.min(w - R, X(r.rssi))), Math.max(T, Math.min(h - B, Y(r.snr))), 3.2, 0, 6.2832); g.fill(); });
     g.globalAlpha = 1; }
   // ---- bars
-  const bar = (label, n, max, col) => '<div class="mrow"><span>' + label + '</span><div class="mtrack"><div class="mfill" style="width:' + Math.max(1, Math.round(n / (max || 1) * 100)) + "%;background:" + col + '"></div></div><em>' + n + "</em></div>";
+  const bar = (label, n, max, col, shown) => '<div class="mrow"><span>' + label + '</span><div class="mtrack"><div class="mfill" style="width:' + Math.max(1, Math.round(n / (max || 1) * 100)) + "%;background:" + col + '"></div></div><em>' + (shown == null ? n : shown) + "</em></div>";
   const tmax = types.length ? counts[types[0]] : 1;
-  $("mTypes").innerHTML = types.length ? types.map((t) => bar(MTYPE[t], counts[t], tmax, mcol(t))).join("") : '<p class="note">Nothing yet.</p>';
+  $("mTypes").innerHTML = types.length ? types.map((t) => bar(MTYPE[t], counts[t], tmax, mcol(t), counts[t] + " / " + Math.round(counts[t] / rx.length * 100) + "%")).join("") : '<p class="note">Nothing yet.</p>';
   $("mTypeNote").textContent = rx.length + " packets in this window";
   // The pie shares the packet-type legend. Airtime is an observed estimate from decoded packet lengths.
   { const mode = $("mComposition").value, pie = types.slice(0, 7); if (types.length > 7) pie.push(-1); const values = pie.map((t) => mode === "airtime" ? rx.filter((r) => t < 0 ? pie.indexOf(r.type) < 0 : r.type === t).reduce((n, r) => n + airtimeMs(r.len, MESH.cfg), 0) : (t < 0 ? types.slice(7).reduce((n, k) => n + counts[k], 0) : counts[t]));
     const total = values.reduce((n, v) => n + v, 0), { g, w, h } = mcanvas("mPie"), cx = Math.min(w * .35, 120), cy = h / 2, rad = Math.min(68, h / 2 - 12); let a = -Math.PI / 2;
     if (total) { values.forEach((v, i) => { const z = v / total * Math.PI * 2; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, rad, a, a + z); g.closePath(); g.fillStyle = mcol(pie[i]); g.fill(); a += z; });
       g.fillStyle = css("--panel"); g.beginPath(); g.arc(cx, cy, rad * .54, 0, Math.PI * 2); g.fill(); g.fillStyle = ink; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "600 15px " + css("--font-d"); g.fillText(mode === "airtime" ? (total / 1000).toFixed(1) + " s" : total, cx, cy - 8); g.font = "12px " + css("--font"); g.fillStyle = mut; g.fillText(mode === "airtime" ? "heard airtime" : "packets", cx, cy + 11);
-      g.textAlign = "left"; g.textBaseline = "middle"; pie.forEach((t, i) => { const y = 18 + i * 20, pct = Math.round(values[i] / total * 100); g.fillStyle = mcol(t); g.fillRect(Math.min(w * .62, cx + rad + 22), y - 5, 10, 10); g.fillStyle = ink; g.fillText((t < 0 ? "Other" : MTYPE[t]) + " " + pct + "%", Math.min(w * .62, cx + rad + 38), y); });
+      // The type bars above are the legend; keep the pie itself deliberately quiet.
     } else { g.fillStyle = mut; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("Waiting for packets…", w / 2, h / 2); }
     $("mPieNote").textContent = mode === "airtime" ? "Decoded packet length + radio settings estimate airtime heard by this radio; it is not a spectrum measurement or a duty-cycle allowance." : "Share of decoded packets heard by this radio in the selected window.";
   }
