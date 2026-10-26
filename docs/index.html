@@ -1159,7 +1159,7 @@ const S = {
   frame: null, frames: [], hist: [],          // hist: {t, best, scores:{id:score}}
   lastAt: 0, mode: "off", port: null, reader: null, writer: null, keep: null, demo: null,
   colorOf: {}, nextColor: 0,
-  scoreView: { minutes: 15, end: 0 },
+  scoreView: { minutes: 15, end: 0, panning: false },
 };
 const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
 function colorFor(id) { if (!(id in S.colorOf)) S.colorOf[id] = SERIES[S.nextColor++ % SERIES.length]; return S.colorOf[id]; }   // color follows the repeater, not its rank
@@ -1522,16 +1522,30 @@ function lineChart(host, o) {
   };
   const leave = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); };
   let drag = null;
+  const finishDrag = (commit) => {
+    if (!drag) return;
+    const end = drag.end;
+    drag = null; plot.removeAttribute("transform"); hit.style.cursor = "grab";
+    if (o.onPanEnd) o.onPanEnd();
+    if (commit && o.onPan) o.onPan(end);
+  };
   hit.addEventListener("pointermove", (ev) => {
-    if (drag && o.onPan) { const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W; o.onPan(drag.end - (px - drag.px) / (W - L - R) * (o.xmax - o.xmin)); return; }
+    if (drag && o.onPan) {
+      const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W;
+      const dx = px - drag.px;
+      drag.end = drag.baseEnd - dx / (W - L - R) * (o.xmax - o.xmin);
+      // Keep this SVG alive for the whole gesture: incoming samples are buffered until release.
+      plot.setAttribute("transform", "translate(" + dx.toFixed(1) + " 0)");
+      return;
+    }
     move(ev);
   });
-  hit.addEventListener("pointerleave", leave);
+  hit.addEventListener("pointerleave", () => { if (!drag) leave(); });
   if (o.onPan) {
     hit.style.cursor = "grab";
-    hit.addEventListener("pointerdown", (ev) => { const r = svg.getBoundingClientRect(); drag = { px: (ev.clientX - r.left) / r.width * W, end: o.xmax }; hit.setPointerCapture(ev.pointerId); hit.style.cursor = "grabbing"; tip.hidden = true; });
-    hit.addEventListener("pointerup", () => { drag = null; hit.style.cursor = "grab"; });
-    hit.addEventListener("pointercancel", () => { drag = null; hit.style.cursor = "grab"; });
+    hit.addEventListener("pointerdown", (ev) => { const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W; drag = { px, end: o.xmax, baseEnd: o.xmax }; hit.setPointerCapture(ev.pointerId); hit.style.cursor = "grabbing"; tip.hidden = true; if (o.onPanStart) o.onPanStart(); });
+    hit.addEventListener("pointerup", () => finishDrag(true));
+    hit.addEventListener("pointercancel", () => finishDrag(false));
     hit.addEventListener("wheel", (ev) => { ev.preventDefault(); o.onZoom((o.xmax - o.xmin) * (ev.deltaY < 0 ? .75 : 1.333)); }, { passive: false });
   }
 }
@@ -1539,6 +1553,7 @@ function lineChart(host, o) {
 function renderScoreChart() {
   const h = S.hist, now = Date.now(), maxMinutes = 15;
   const view = S.scoreView;
+  if (view.panning) return; // retain the current SVG and its pointer capture until release
   view.minutes = Math.max(0.5, Math.min(maxMinutes, view.minutes));
   view.end = Math.min(0, Math.max(-maxMinutes + view.minutes, view.end));
   const ids = []; h.forEach((x) => Object.keys(x.scores).forEach((id) => { if (ids.indexOf(id) < 0) ids.push(id); }));
@@ -1550,6 +1565,7 @@ function renderScoreChart() {
   const span = view.minutes, xmin = view.end - span, xticks = [xmin, xmin + span / 2, view.end];
   lineChart($("scoreChart"), { label: "Score of the strongest repeaters over the selected time window", series, xmin, xmax: view.end, ymin: 0, ymax: 100,
     yticks: [0, 25, 50, 75, 100], yfmt: (v) => String(Math.round(v)), xticks, xfmt: (v) => (v >= -0.05 ? "now" : Math.abs(v).toFixed(span < 2 ? 1 : 0) + " min ago"), emptyText: "Collecting data. This fills in as frames arrive.",
+    onPanStart: () => { S.scoreView.panning = true; }, onPanEnd: () => { S.scoreView.panning = false; },
     onPan: (end) => { S.scoreView.end = end; renderScoreChart(); }, onZoom: (minutes) => { S.scoreView.minutes = minutes; renderScoreChart(); } });
 }
 
@@ -2121,7 +2137,7 @@ setInterval(() => {
 
 $("scoreZoomIn").addEventListener("click", () => { S.scoreView.minutes *= .75; renderScoreChart(); });
 $("scoreZoomOut").addEventListener("click", () => { S.scoreView.minutes *= 1.333; renderScoreChart(); });
-$("scoreReset").addEventListener("click", () => { S.scoreView = { minutes: 15, end: 0 }; renderScoreChart(); });
+$("scoreReset").addEventListener("click", () => { S.scoreView = { minutes: 15, end: 0, panning: false }; renderScoreChart(); });
 $("btnConnect").addEventListener("click", () => { if (S.mode === "serial") disconnect(false); else connect(); });
 $("btnDemo").addEventListener("click", () => { if (S.demo) { stopDemo(); } else startDemo(); $("btnDemo").textContent = S.demo ? "Stop sample data" : "Try sample data"; });
 $("btnSave").addEventListener("click", () => {
