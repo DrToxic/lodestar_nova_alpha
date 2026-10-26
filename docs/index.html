@@ -955,10 +955,10 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <div class="mbars" id="mTypes"></div>
         <h3 class="sub">Composition <select id="mComposition" aria-label="Traffic composition measure"><option value="packets" selected>Packets</option><option value="airtime">Observed airtime</option></select></h3>
         <canvas id="mPie" data-h="190" role="img" aria-label="Traffic composition pie chart"></canvas>
-        <p class="note" id="mPieNote"></p>
-        <h3 class="sub">Hops the packets travelled</h3>
+        <p class="note" id="mPieNote"></p></div>
+      <div class="mcard"><h3>Hops the packets travelled</h3>
         <div class="mbars" id="mHops"></div></div>
-      <div class="mcard"><h3>Traffic history <span class="note">stacked packets by type across the selected window</span></h3>
+      <div class="mcard wide"><h3>Traffic history <span class="note">stacked packets by type across the selected window</span></h3>
         <canvas id="mTraffic" data-h="210" role="img" aria-label="Packet traffic over time, stacked by packet type"></canvas>
         <h3 class="sub">Hop history <span class="note">stacked by path length</span></h3>
         <canvas id="mHopTrend" data-h="180" role="img" aria-label="Packet hops over time, stacked by hop count"></canvas></div>
