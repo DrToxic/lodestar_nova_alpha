@@ -875,6 +875,7 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .mcard.wide { grid-column: 1 / -1; }
 .mcard h3 { margin: 0 0 6px; font: 600 15px var(--font-d); }
 .mcard h3 .note { margin-left: 8px; font-weight: 400; }
+.mcard h3 select { margin-left: 6px; font-size: 12px; vertical-align: 1px; }
 #mLegend .sw { border-radius: 50%; margin-right: 4px; vertical-align: -2px; }
 .mcard h3.sub { margin-top: 14px; }
 .mcard canvas { width: 100%; display: block; }
@@ -951,6 +952,9 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <canvas id="mQual" data-h="230" role="img" aria-label="Signal strength against SNR"></canvas></div>
       <div class="mcard"><h3>What is on the air <span class="note" id="mTypeNote"></span></h3>
         <div class="mbars" id="mTypes"></div>
+        <h3 class="sub">Composition <select id="mComposition" aria-label="Traffic composition measure"><option value="packets" selected>Packets</option><option value="airtime">Observed airtime</option></select></h3>
+        <canvas id="mPie" data-h="190" role="img" aria-label="Traffic composition pie chart"></canvas>
+        <p class="note" id="mPieNote"></p>
         <h3 class="sub">Hops the packets travelled</h3>
         <div class="mbars" id="mHops"></div></div>
       <div class="mcard"><h3>Traffic history <span class="note">stacked packets by type across the selected window</span></h3>
@@ -1381,6 +1385,15 @@ function meshDraw() {
   const tmax = types.length ? counts[types[0]] : 1;
   $("mTypes").innerHTML = types.length ? types.map((t) => bar(MTYPE[t], counts[t], tmax, mcol(t))).join("") : '<p class="note">Nothing yet.</p>';
   $("mTypeNote").textContent = rx.length + " packets in this window";
+  // The pie shares the packet-type legend. Airtime is an observed estimate from decoded packet lengths.
+  { const mode = $("mComposition").value, pie = types.slice(0, 7); if (types.length > 7) pie.push(-1); const values = pie.map((t) => mode === "airtime" ? rx.filter((r) => t < 0 ? pie.indexOf(r.type) < 0 : r.type === t).reduce((n, r) => n + airtimeMs(r.len, MESH.cfg), 0) : (t < 0 ? types.slice(7).reduce((n, k) => n + counts[k], 0) : counts[t]));
+    const total = values.reduce((n, v) => n + v, 0), { g, w, h } = mcanvas("mPie"), cx = Math.min(w * .35, 120), cy = h / 2, rad = Math.min(68, h / 2 - 12); let a = -Math.PI / 2;
+    if (total) { values.forEach((v, i) => { const z = v / total * Math.PI * 2; g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, rad, a, a + z); g.closePath(); g.fillStyle = mcol(pie[i]); g.fill(); a += z; });
+      g.fillStyle = css("--panel"); g.beginPath(); g.arc(cx, cy, rad * .54, 0, Math.PI * 2); g.fill(); g.fillStyle = ink; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "600 15px " + css("--font-d"); g.fillText(mode === "airtime" ? (total / 1000).toFixed(1) + " s" : total, cx, cy - 8); g.font = "12px " + css("--font"); g.fillStyle = mut; g.fillText(mode === "airtime" ? "heard airtime" : "packets", cx, cy + 11);
+      g.textAlign = "left"; g.textBaseline = "middle"; pie.forEach((t, i) => { const y = 18 + i * 20, pct = Math.round(values[i] / total * 100); g.fillStyle = mcol(t); g.fillRect(Math.min(w * .62, cx + rad + 22), y - 5, 10, 10); g.fillStyle = ink; g.fillText((t < 0 ? "Other" : MTYPE[t]) + " " + pct + "%", Math.min(w * .62, cx + rad + 38), y); });
+    } else { g.fillStyle = mut; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("Waiting for packets…", w / 2, h / 2); }
+    $("mPieNote").textContent = mode === "airtime" ? "Decoded packet length + radio settings estimate airtime heard by this radio; it is not a spectrum measurement or a duty-cycle allowance." : "Share of decoded packets heard by this radio in the selected window.";
+  }
   const hc = [0, 0, 0, 0, 0, 0, 0]; rx.forEach((r) => { hc[Math.min(6, r.hops)]++; });
   const hm = Math.max.apply(null, hc.concat([1]));
   $("mHops").innerHTML = hc.map((n, i) => bar(i === 0 ? "direct" : i === 6 ? "6 or more" : i + (i === 1 ? " hop" : " hops"), n, hm, css("--s1"))).join("");
@@ -1420,6 +1433,7 @@ function meshCsv() {
 $("mWin").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mScale").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mHistory").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
+$("mComposition").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mPause").addEventListener("click", () => { MESH.paused = !MESH.paused; $("mPause").setAttribute("aria-pressed", MESH.paused); $("mPause").textContent = MESH.paused ? "Resume" : "Pause"; if (!MESH.paused) meshDraw(); });
 $("mCsv").addEventListener("click", meshCsv);
 $("mClear").addEventListener("click", () => { MESH.recs = []; MESH.nf = []; MESH.dirty = true; meshDraw(); });
