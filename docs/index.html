@@ -939,6 +939,8 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <select id="mScale" aria-label="Signal chart scale"><option value="auto" selected>Automatic</option><option value="reference">Reference range</option></select>
       <label for="mHistory">History</label>
       <select id="mHistory" aria-label="Traffic history window"><option value="rolling" selected>Rolling</option><option value="clock">Clock-aligned</option></select>
+      <label for="mSort">Traffic sort</label>
+      <select id="mSort" aria-label="Traffic bar sorting"><option value="count" selected>Most frequent</option><option value="type">Packet type</option></select>
       <button id="mPause" aria-pressed="false">Pause</button>
       <button id="mCsv">Save CSV</button>
       <button id="mClear">Clear</button>
@@ -1339,7 +1341,7 @@ function meshDraw() {
     tile("Nodes", srcs10, "heard", "different senders or repeaters, last 10 min");
   // ---- packet types; the coloured bars are also the composition key.
   const counts = {}; rx.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
-  const types = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
+  const types = Object.keys(counts).map(Number).sort($("mSort").value === "type" ? (a, b) => a - b : (a, b) => counts[b] - counts[a]);
   // ---- signal over time
   { const { g, w, h } = mcanvas("mTime"), L = 46, R = 10, T = 8, B = 24;
     let lo = -130, hi = -40;
@@ -1432,6 +1434,7 @@ $("mWin").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mScale").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mHistory").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mComposition").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
+$("mSort").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mPause").addEventListener("click", () => { MESH.paused = !MESH.paused; $("mPause").setAttribute("aria-pressed", MESH.paused); $("mPause").textContent = MESH.paused ? "Resume" : "Pause"; if (!MESH.paused) meshDraw(); });
 $("mCsv").addEventListener("click", meshCsv);
 $("mClear").addEventListener("click", () => { MESH.recs = []; MESH.nf = []; MESH.dirty = true; meshDraw(); });
