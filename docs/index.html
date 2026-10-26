@@ -114,7 +114,11 @@ tr.best .id::before { content: "\2605  "; color: var(--s1); }
 
 svg text { font-family: var(--font); }
 .chart { position: relative; }
-.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart svg { display: block; width: 100%; height: auto; overflow: hidden; }
+.chart-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 10px; }
+.chart-controls button { border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--muted); font: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer; }
+.chart-controls button:hover, .chart-controls button:focus-visible { color: var(--ink); border-color: var(--s1); }
+.chart-controls span { color: var(--muted); font-size: 12px; }
 .tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 13px; color: var(--ink); box-shadow: 0 2px 8px rgba(0,0,0,.18); white-space: nowrap; z-index: 3; transform: translate(-50%, -110%); }
 .tip[hidden] { display: none; }
 
@@ -986,6 +990,12 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 
       <section class="panel">
         <h2>Uplink score over time <span class="note">this page keeps the last 15 minutes</span></h2>
+        <div class="chart-controls" aria-label="Uplink score chart controls">
+          <button type="button" id="scoreZoomOut" aria-label="Zoom out score chart">−</button>
+          <button type="button" id="scoreZoomIn" aria-label="Zoom in score chart">+</button>
+          <button type="button" id="scoreReset">Last 15 min</button>
+          <span>Scroll to zoom · drag to pan</span>
+        </div>
         <ul class="chips" id="scoreLegend" aria-label="Legend"></ul>
         <div class="chart" id="scoreChart"></div>
       </section>
@@ -1149,6 +1159,7 @@ const S = {
   frame: null, frames: [], hist: [],          // hist: {t, best, scores:{id:score}}
   lastAt: 0, mode: "off", port: null, reader: null, writer: null, keep: null, demo: null,
   colorOf: {}, nextColor: 0,
+  scoreView: { minutes: 15, end: 0 },
 };
 const SERIES = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"];
 function colorFor(id) { if (!(id in S.colorOf)) S.colorOf[id] = SERIES[S.nextColor++ % SERIES.length]; return S.colorOf[id]; }   // color follows the repeater, not its rank
@@ -1466,6 +1477,9 @@ function lineChart(host, o) {
   const any = o.series.some((s) => s.pts.length > 1);
   const svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": o.label });
   host.appendChild(svg);
+  const clipId = "plot-" + Math.random().toString(36).slice(2);
+  const defs = el("defs", {}, svg), clip = el("clipPath", { id: clipId }, defs);
+  el("rect", { x: L, y: T, width: W - L - R, height: H - T - B }, clip);
   const X = (x) => L + (x - o.xmin) / (o.xmax - o.xmin || 1) * (W - L - R);
   const Y = (y) => T + (1 - (y - o.ymin) / (o.ymax - o.ymin || 1)) * (H - T - B);
   o.yticks.forEach((v) => {
@@ -1476,13 +1490,14 @@ function lineChart(host, o) {
     const t = el("text", { x: X(v), y: H - 6, "text-anchor": v === o.xmin ? "start" : v === o.xmax ? "end" : "middle", "font-size": 12, fill: css("--muted") }, svg); t.textContent = o.xfmt(v);
   });
   if (!any) { const t = el("text", { x: W / 2, y: H / 2, "text-anchor": "middle", "font-size": 14, fill: css("--muted") }, svg); t.textContent = o.emptyText; return; }
+  const plot = el("g", { "clip-path": "url(#" + clipId + ")" }, svg);
   o.series.forEach((s) => {
     if (s.pts.length < 2) return;
-    el("polyline", { points: s.pts.map((p) => X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" "), fill: "none", stroke: css(s.color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    el("polyline", { points: s.pts.map((p) => X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" "), fill: "none", stroke: css(s.color), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }, plot);
   });
   // hover layer: a crosshair and a tooltip with every series at that moment
-  const cross = el("line", { y1: T, y2: H - B, stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" }, svg);
-  const dots = o.series.map((s) => el("circle", { r: 4, fill: css(s.color), stroke: css("--panel"), "stroke-width": 2, visibility: "hidden" }, svg));
+  const cross = el("line", { y1: T, y2: H - B, stroke: css("--muted"), "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" }, plot);
+  const dots = o.series.map((s) => el("circle", { r: 4, fill: css(s.color), stroke: css("--panel"), "stroke-width": 2, visibility: "hidden" }, plot));
   const hit = el("rect", { x: L, y: T, width: W - L - R, height: H - T - B, fill: "transparent", style: "touch-action:pan-y" }, svg);
   const tip = $("tip");
   const move = (ev) => {
@@ -1506,19 +1521,36 @@ function lineChart(host, o) {
     tip.hidden = false;
   };
   const leave = () => { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); };
-  hit.addEventListener("pointermove", move); hit.addEventListener("pointerleave", leave);
+  let drag = null;
+  hit.addEventListener("pointermove", (ev) => {
+    if (drag && o.onPan) { const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) / r.width * W; o.onPan(drag.end - (px - drag.px) / (W - L - R) * (o.xmax - o.xmin)); return; }
+    move(ev);
+  });
+  hit.addEventListener("pointerleave", leave);
+  if (o.onPan) {
+    hit.style.cursor = "grab";
+    hit.addEventListener("pointerdown", (ev) => { const r = svg.getBoundingClientRect(); drag = { px: (ev.clientX - r.left) / r.width * W, end: o.xmax }; hit.setPointerCapture(ev.pointerId); hit.style.cursor = "grabbing"; tip.hidden = true; });
+    hit.addEventListener("pointerup", () => { drag = null; hit.style.cursor = "grab"; });
+    hit.addEventListener("pointercancel", () => { drag = null; hit.style.cursor = "grab"; });
+    hit.addEventListener("wheel", (ev) => { ev.preventDefault(); o.onZoom((o.xmax - o.xmin) * (ev.deltaY < 0 ? .75 : 1.333)); }, { passive: false });
+  }
 }
 
 function renderScoreChart() {
-  const h = S.hist, now = Date.now();
+  const h = S.hist, now = Date.now(), maxMinutes = 15;
+  const view = S.scoreView;
+  view.minutes = Math.max(0.5, Math.min(maxMinutes, view.minutes));
+  view.end = Math.min(0, Math.max(-maxMinutes + view.minutes, view.end));
   const ids = []; h.forEach((x) => Object.keys(x.scores).forEach((id) => { if (ids.indexOf(id) < 0) ids.push(id); }));
   // keep the 4 that were strongest most recently, so the chart stays readable
   const last = h.length ? h[h.length - 1].scores : {};
   const shown = ids.sort((a, b) => (last[b] || 0) - (last[a] || 0)).slice(0, 4);
   const series = shown.map((id) => ({ name: id, color: colorFor(id), pts: h.filter((x) => id in x.scores).map((x) => [(x.t - now) / 60000, x.scores[id]]) }));
   $("scoreLegend").innerHTML = shown.map((id) => '<li><i style="background:var(' + colorFor(id) + ')"></i>' + esc(id) + "</li>").join("") + (ids.length > 4 ? "<li>and " + (ids.length - 4) + " weaker</li>" : "");
-  lineChart($("scoreChart"), { label: "Score of the strongest repeaters over the last 15 minutes", series, xmin: -15, xmax: 0, ymin: 0, ymax: 100,
-    yticks: [0, 25, 50, 75, 100], yfmt: (v) => String(Math.round(v)), xticks: [-15, -10, -5, 0], xfmt: (v) => (v === 0 ? "now" : Math.abs(Math.round(v)) + " min ago"), emptyText: "Collecting data. This fills in as frames arrive." });
+  const span = view.minutes, xmin = view.end - span, xticks = [xmin, xmin + span / 2, view.end];
+  lineChart($("scoreChart"), { label: "Score of the strongest repeaters over the selected time window", series, xmin, xmax: view.end, ymin: 0, ymax: 100,
+    yticks: [0, 25, 50, 75, 100], yfmt: (v) => String(Math.round(v)), xticks, xfmt: (v) => (v >= -0.05 ? "now" : Math.abs(v).toFixed(span < 2 ? 1 : 0) + " min ago"), emptyText: "Collecting data. This fills in as frames arrive.",
+    onPan: (end) => { S.scoreView.end = end; renderScoreChart(); }, onZoom: (minutes) => { S.scoreView.minutes = minutes; renderScoreChart(); } });
 }
 
 function renderBatt(b) {
@@ -2087,6 +2119,9 @@ setInterval(() => {
   }
 }, 1000);
 
+$("scoreZoomIn").addEventListener("click", () => { S.scoreView.minutes *= .75; renderScoreChart(); });
+$("scoreZoomOut").addEventListener("click", () => { S.scoreView.minutes *= 1.333; renderScoreChart(); });
+$("scoreReset").addEventListener("click", () => { S.scoreView = { minutes: 15, end: 0 }; renderScoreChart(); });
 $("btnConnect").addEventListener("click", () => { if (S.mode === "serial") disconnect(false); else connect(); });
 $("btnDemo").addEventListener("click", () => { if (S.demo) { stopDemo(); } else startDemo(); $("btnDemo").textContent = S.demo ? "Stop sample data" : "Try sample data"; });
 $("btnSave").addEventListener("click", () => {
