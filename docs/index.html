@@ -1410,13 +1410,13 @@ function meshDraw() {
   const histRx = MESH.recs.filter((r) => !r.tx && r.t >= histFrom && r.t < histTo);
   $("mHistoryNote").textContent = (histClock ? "clock-aligned" : "rolling") + " " + Math.round(binMs / 1000) + " s bins; scroll for older history";
   const trend = (id, hgt, key, label, colour) => {
-    const { g, w, h } = mcanvas(id), L = 32, R = 10, T = 8, B = 54, bins = histBins;
+    const { g, w, h } = mcanvas(id), L = 34, R = 34, T = 8, B = 54, bins = histBins;
     const sets = Array.from({ length: bins }, () => ({}));
     histRx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / binMs))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
     const tops = sets.map((b) => Object.values(b).reduce((n, v) => n + v, 0)), top = Math.max(1, ...tops), step = Math.max(1, Math.ceil(top / 4));
     const Y = (v) => T + (1 - v / (step * 4)) * (h - T - B), bw = (w - L - R) / bins;
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
-    for (let v = 0; v <= step * 4; v += step) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 5, Y(v)); }
+    for (let v = 0; v <= step * 4; v += step) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 5, Y(v)); g.textAlign = "left"; g.fillText(v, w - R + 5, Y(v)); g.textAlign = "right"; }
     sets.forEach((b, i) => { let base = 0; Object.keys(b).sort((a, z) => +a - +z).forEach((k) => { const n = b[k], y = Y(base + n); g.fillStyle = colour(+k); g.fillRect(L + i * bw + 1, y, Math.max(1, bw - 2), Y(base) - y); base += n; }); });
     g.fillStyle = mut; g.font = "11px " + css("--font"); g.textAlign = "right"; g.textBaseline = "middle";
     for (let i = 0; i < bins; i++) { const t = histFrom + i * binMs, x = L + (i + .5) * bw; g.save(); g.translate(x + 5, h - B + 8); g.rotate(-Math.PI / 3); g.fillText(mfmtT(t), 0, 0); g.restore(); }
@@ -1424,11 +1424,11 @@ function meshDraw() {
   };
   trend("mTraffic", 210, (r) => r.type, "packets", (k) => mcol(k));
   // Airtime uses every decoded record (heard and sent); grey is the remainder of that bin, not measured RF silence.
-  { const { g, w, h } = mcanvas("mAirtime"), L = 32, R = 10, T = 8, B = 54, bins = histBins, ms = Array(bins).fill(0);
+  { const { g, w, h } = mcanvas("mAirtime"), L = 34, R = 34, T = 8, B = 54, bins = histBins, ms = Array(bins).fill(0);
     MESH.recs.filter((r) => r.t >= histFrom && r.t < histTo).forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / binMs))); ms[i] += airtimeMs(r.len, MESH.cfg); });
     const Y = (v) => T + (1 - v / 100) * (h - T - B), bw = (w - L - R) / bins;
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
-    [0, 50, 100].forEach((v) => { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v + "%", L - 5, Y(v)); });
+    [0, 50, 100].forEach((v) => { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v + "%", L - 5, Y(v)); g.textAlign = "left"; g.fillText(v + "%", w - R + 5, Y(v)); g.textAlign = "right"; });
     ms.forEach((v, i) => { const p = Math.max(0, Math.min(100, v / binMs * 100)), x = L + i * bw + 1; g.fillStyle = grid; g.fillRect(x, T, Math.max(1, bw - 2), h - T - B); g.fillStyle = css("--s1"); g.fillRect(x, Y(p), Math.max(1, bw - 2), Y(0) - Y(p)); });
     g.fillStyle = mut; g.font = "11px " + css("--font"); g.textAlign = "right"; g.textBaseline = "middle";
     for (let i = 0; i < bins; i++) { const x = L + (i + .5) * bw; g.save(); g.translate(x + 5, h - B + 8); g.rotate(-Math.PI / 3); g.fillText(mfmtT(histFrom + i * binMs), 0, 0); g.restore(); }
