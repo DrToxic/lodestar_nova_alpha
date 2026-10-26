@@ -879,6 +879,8 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 #mLegend .sw { border-radius: 50%; margin-right: 4px; vertical-align: -2px; }
 .mcard h3.sub { margin-top: 14px; }
 .mcard canvas { width: 100%; display: block; }
+.mtrend-scroll { overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 3px; }
+.mtrend-scroll canvas { max-width: none; }
 .mhover { margin: 6px 0 0; min-height: 1.3em; font: 500 13px var(--font); color: var(--ink2); }
 .mbars .mrow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 76px; align-items: center; gap: 8px; margin: 3px 0; font: 500 13px var(--font); }
 .mbars .mtrack { height: 12px; background: var(--grid); border-radius: 6px; overflow: hidden; }
@@ -938,7 +940,7 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <label for="mScale">Scale</label>
       <select id="mScale" aria-label="Signal chart scale"><option value="auto" selected>Automatic</option><option value="reference">Reference range</option></select>
       <label for="mHistory">History</label>
-      <select id="mHistory" aria-label="Traffic history window"><option value="rolling" selected>Rolling</option><option value="clock">Clock-aligned</option></select>
+      <select id="mHistory" aria-label="Traffic history window"><option value="clock" selected>Clock-aligned</option><option value="rolling">Rolling</option></select>
       <label for="mSort">Traffic sort</label>
       <select id="mSort" aria-label="Traffic bar sorting"><option value="count" selected>Most frequent</option><option value="type">Packet type</option></select>
       <button id="mPause" aria-pressed="false">Pause</button>
@@ -958,10 +960,10 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <p class="note" id="mPieNote"></p></div>
       <div class="mcard"><h3>Hops the packets travelled</h3>
         <div class="mbars" id="mHops"></div></div>
-      <div class="mcard wide"><h3>Traffic history <span class="note">stacked packets by type across the selected window</span></h3>
-        <canvas id="mTraffic" data-h="210" role="img" aria-label="Packet traffic over time, stacked by packet type"></canvas>
+      <div class="mcard wide"><h3>Traffic history <span class="note" id="mHistoryNote">clock-aligned packet bins; scroll for older history</span></h3>
+        <div class="mtrend-scroll"><canvas id="mTraffic" data-h="230" data-bins="72" role="img" aria-label="Packet traffic history, stacked by packet type"></canvas></div>
         <h3 class="sub">Hop history <span class="note">stacked by path length</span></h3>
-        <canvas id="mHopTrend" data-h="180" role="img" aria-label="Packet hops over time, stacked by hop count"></canvas></div>
+        <div class="mtrend-scroll"><canvas id="mHopTrend" data-h="200" data-bins="72" role="img" aria-label="Packet hop history, stacked by hop count"></canvas></div></div>
       <div class="mcard wide"><h3>Who this radio hears <span class="note">the node each packet came from: the last repeater on its path, or the sender itself for a direct advert</span></h3>
         <div class="mscroll"><table class="mtable" id="mSrc"><thead><tr><th>Heard from</th><th class="n">Packets</th><th class="n">Last</th><th class="n">Avg dBm</th><th class="n">Best dBm</th><th class="n">Avg SNR</th><th>Strength</th></tr></thead><tbody></tbody></table></div></div>
     </div>
@@ -1037,36 +1039,6 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 
     <div class="col">
       <section class="panel">
-        <h2>Nodes found <span class="note" id="foundNote"></span></h2>
-        <p class="counts" id="foundCounts"></p>
-        <p class="empty" id="foundEmpty">Nothing found yet. Repeaters and companions appear as their adverts are heard. A node shows on the map at the position it announces, or where you heard it.</p>
-        <div class="found-actions">
-          <button id="btnCsv" disabled>Download list (CSV)</button>
-          <button id="btnGeo" disabled>Download map file (GeoJSON)</button>
-          <button id="btnGpx" disabled>Download route + nodes (GPX)</button>
-          <button id="btnClearFound" disabled>Clear found list</button>
-        </div>
-        <p class="hint">These files contain other people's radio names and the places they announce. Keep them private. The page remembers your route and list in this browser until you clear them.</p>
-      </section>
-
-      <section class="panel" id="offPanel">
-        <h2>Offline maps <span class="note" id="offNote"></span></h2>
-        <p class="hint">No signal on the road? Download a region once, at home, load it here, and the map works with no internet. The file stays in this browser.</p>
-        <div class="row off-row">
-          <label for="regSel">Region</label>
-          <select id="regSel" aria-label="Region to download"><option value="">Loading the list...</option></select>
-          <a id="regDl" class="btnlink" href="#" target="_blank" rel="noopener" aria-disabled="true">Download</a>
-        </div>
-        <p class="hint" id="regNote"></p>
-        <div class="row off-row">
-          <label for="mapFile">Load a map file</label>
-          <input type="file" id="mapFile" accept=".pmtiles" multiple>
-        </div>
-        <ul class="offlist" id="offList"></ul>
-        <p class="hint">Download the file with the button, then choose it with "Load a map file". Maps come from OpenStreetMap data (&copy; OpenStreetMap contributors, ODbL), built by Protomaps. Large regions are big files (hundreds of megabytes) and need that much free space in the browser.</p>
-      </section>
-
-      <section class="panel">
         <h2>Messages you sent</h2>
         <p class="counts" id="dlCounts"></p>
         <ul class="dl" id="dlList"></ul>
@@ -1103,6 +1075,35 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
         <h2>Radio diagnostics</h2>
         <dl class="dgrid" id="diag"></dl>
         <details><summary>Latest raw data</summary><pre class="raw" id="raw">Nothing received yet.</pre></details>
+      </section>
+      <section class="panel">
+        <h2>Nodes found <span class="note" id="foundNote"></span></h2>
+        <p class="counts" id="foundCounts"></p>
+        <p class="empty" id="foundEmpty">Nothing found yet. Repeaters and companions appear as their adverts are heard. A node shows on the map at the position it announces, or where you heard it.</p>
+        <div class="found-actions">
+          <button id="btnCsv" disabled>Download list (CSV)</button>
+          <button id="btnGeo" disabled>Download map file (GeoJSON)</button>
+          <button id="btnGpx" disabled>Download route + nodes (GPX)</button>
+          <button id="btnClearFound" disabled>Clear found list</button>
+        </div>
+        <p class="hint">These files contain other people's radio names and the places they announce. Keep them private. The page remembers your route and list in this browser until you clear them.</p>
+      </section>
+
+      <section class="panel" id="offPanel">
+        <h2>Offline maps <span class="note" id="offNote"></span></h2>
+        <p class="hint">No signal on the road? Download a region once, at home, load it here, and the map works with no internet. The file stays in this browser.</p>
+        <div class="row off-row">
+          <label for="regSel">Region</label>
+          <select id="regSel" aria-label="Region to download"><option value="">Loading the list...</option></select>
+          <a id="regDl" class="btnlink" href="#" target="_blank" rel="noopener" aria-disabled="true">Download</a>
+        </div>
+        <p class="hint" id="regNote"></p>
+        <div class="row off-row">
+          <label for="mapFile">Load a map file</label>
+          <input type="file" id="mapFile" accept=".pmtiles" multiple>
+        </div>
+        <ul class="offlist" id="offList"></ul>
+        <p class="hint">Download the file with the button, then choose it with "Load a map file". Maps come from OpenStreetMap data (&copy; OpenStreetMap contributors, ODbL), built by Protomaps. Large regions are big files (hundreds of megabytes) and need that much free space in the browser.</p>
       </section>
     </div>
   </div>
@@ -1312,7 +1313,8 @@ function onMeshLine(line) {
   MESH.dirty = true;
 }
 function mcanvas(id) {
-  const c = $(id), w = Math.max(160, Math.round(c.getBoundingClientRect().width)), h = +c.dataset.h || 220, d = window.devicePixelRatio || 1;
+  const c = $(id), bins = +c.dataset.bins || 0, parentW = c.parentElement.getBoundingClientRect().width, w = Math.max(160, Math.round(bins ? Math.max(parentW, 42 + bins * 48) : parentW)), h = +c.dataset.h || 220, d = window.devicePixelRatio || 1;
+  c.style.width = w + "px";
   if (c.width !== Math.round(w * d) || c.height !== Math.round(h * d)) { c.width = Math.round(w * d); c.height = Math.round(h * d); }
   c.style.height = h + "px";
   const g = c.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, w, h);
@@ -1397,20 +1399,24 @@ function meshDraw() {
   const hc = [0, 0, 0, 0, 0, 0, 0]; rx.forEach((r) => { hc[Math.min(6, r.hops)]++; });
   const hm = Math.max.apply(null, hc.concat([1]));
   $("mHops").innerHTML = hc.map((n, i) => bar(i === 0 ? "direct" : i === 6 ? "6 or more" : i + (i === 1 ? " hop" : " hops"), n, hm, css("--s1"))).join("");
-  // ---- stacked history: rolling windows follow "now"; clock-aligned intervals reset at a clean boundary.
-  // Both chart packet observations only, not a measurement of all RF activity.
-  const histClock = $("mHistory").value === "clock", histFrom = histClock ? Math.floor(now / win) * win : from, histTo = histClock ? histFrom + win : now;
+  // ---- retained history: 72 fixed bins survive a clock boundary and scroll horizontally.
+  // These remain packet observations, not a measurement of all RF activity.
+  const histClock = $("mHistory").value === "clock", histBins = 72, binMs = win / 12;
+  const histTo = histClock ? Math.floor(now / binMs) * binMs + binMs : now, histFrom = histTo - histBins * binMs;
   const histRx = MESH.recs.filter((r) => !r.tx && r.t >= histFrom && r.t < histTo);
+  $("mHistoryNote").textContent = (histClock ? "clock-aligned" : "rolling") + " " + Math.round(binMs / 1000) + " s bins; scroll for older history";
   const trend = (id, hgt, key, label, colour) => {
-    const { g, w, h } = mcanvas(id), L = 32, R = 10, T = 8, B = 24, bins = Math.max(6, Math.min(30, Math.round(w / 34)));
+    const { g, w, h } = mcanvas(id), L = 32, R = 10, T = 8, B = 54, bins = histBins;
     const sets = Array.from({ length: bins }, () => ({}));
-    histRx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / win * bins))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
+    histRx.forEach((r) => { const i = Math.max(0, Math.min(bins - 1, Math.floor((r.t - histFrom) / binMs))); const k = key(r); sets[i][k] = (sets[i][k] || 0) + 1; });
     const tops = sets.map((b) => Object.values(b).reduce((n, v) => n + v, 0)), top = Math.max(1, ...tops), step = Math.max(1, Math.ceil(top / 4));
     const Y = (v) => T + (1 - v / (step * 4)) * (h - T - B), bw = (w - L - R) / bins;
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
     for (let v = 0; v <= step * 4; v += step) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 5, Y(v)); }
     sets.forEach((b, i) => { let base = 0; Object.keys(b).sort((a, z) => +a - +z).forEach((k) => { const n = b[k], y = Y(base + n); g.fillStyle = colour(+k); g.fillRect(L + i * bw + 1, y, Math.max(1, bw - 2), Y(base) - y); base += n; }); });
-    g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = mut; g.fillText(mfmtT(histFrom), L, h - B + 6); g.fillText(histClock ? mfmtT(histTo) : "now", w - R, h - B + 6); g.textAlign = "left"; g.fillText(label, L + 4, T + 3);
+    g.fillStyle = mut; g.font = "11px " + css("--font"); g.textAlign = "right"; g.textBaseline = "middle";
+    for (let i = 0; i < bins; i++) { const t = histFrom + i * binMs, x = L + (i + .5) * bw; g.save(); g.translate(x + 5, h - B + 8); g.rotate(-Math.PI / 3); g.fillText(mfmtT(t), 0, 0); g.restore(); }
+    g.textAlign = "left"; g.textBaseline = "top"; g.fillText(label, L + 4, T + 3);
   };
   trend("mTraffic", 210, (r) => r.type, "packets", (k) => mcol(k));
   trend("mHopTrend", 180, (r) => Math.min(6, r.hops), "packets", (k) => k === 0 ? css("--s3") : css("--s1"));
