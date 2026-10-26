@@ -935,6 +935,8 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
       <span class="spacer"></span>
       <label for="mWin">Show</label>
       <select id="mWin"><option value="60000">1 minute</option><option value="300000" selected>5 minutes</option><option value="900000">15 minutes</option><option value="3600000">1 hour</option></select>
+      <label for="mScale">Scale</label>
+      <select id="mScale" aria-label="Signal chart scale"><option value="auto" selected>Automatic</option><option value="reference">Reference range</option></select>
       <button id="mPause" aria-pressed="false">Pause</button>
       <button id="mCsv">Save CSV</button>
       <button id="mClear">Clear</button>
@@ -1308,7 +1310,7 @@ function mcanvas(id) {
 const mfmtT = (ms) => { const d = new Date(ms); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); };
 function meshDraw() {
   if (MESH.paused || $("meshPanel").hidden) return;
-  const now = Date.now(), win = +$("mWin").value || 300000, from = now - win;
+  const now = Date.now(), win = +$("mWin").value || 300000, from = now - win, autoScale = $("mScale").value === "auto";
   const rx = MESH.recs.filter((r) => !r.tx && r.t >= from), txr = MESH.recs.filter((r) => r.tx && r.t >= from);
   const ink = css("--ink2"), mut = css("--muted"), grid = css("--grid"), bad = css("--bad");
   // ---- tiles
@@ -1333,7 +1335,7 @@ function meshDraw() {
   // ---- signal over time
   { const { g, w, h } = mcanvas("mTime"), L = 46, R = 10, T = 8, B = 24;
     let lo = -130, hi = -40;
-    if (rx.length) { const mn = Math.min.apply(null, rx.map((r) => r.rssi)), mx = Math.max.apply(null, rx.map((r) => r.rssi)); lo = Math.min(lo, Math.floor(mn / 10) * 10 - 10); hi = Math.max(hi, Math.ceil(mx / 10) * 10 + 5); }
+    if (autoScale && rx.length) { const mn = Math.min.apply(null, rx.map((r) => r.rssi)), mx = Math.max.apply(null, rx.map((r) => r.rssi)); lo = Math.floor((mn - 8) / 10) * 10; hi = Math.ceil((mx + 8) / 10) * 10; if (hi - lo < 30) { const mid = (hi + lo) / 2; lo = Math.floor((mid - 15) / 10) * 10; hi = lo + 30; } }
     const X = (t) => L + (t - from) / win * (w - L - R), Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (h - T - B);
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
     for (let v = Math.ceil(lo / 10) * 10; v <= hi; v += 10) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 6, Y(v)); }
@@ -1350,12 +1352,20 @@ function meshDraw() {
     txr.forEach((r) => { const x = X(r.t); g.beginPath(); g.moveTo(x, h - B - 9); g.lineTo(x, h - B); g.stroke(); MESH.hit.push({ x, y: h - B - 4, r }); });
     if (!rx.length) { g.fillStyle = mut; g.textAlign = "center"; g.textBaseline = "middle"; g.font = "14px " + css("--font"); g.fillText(MESH.recs.length ? "Nothing heard in this window." : "Waiting for the radio to hear something…", w / 2, h / 2); } }
   // ---- quality map
-  { const { g, w, h } = mcanvas("mQual"), L = 40, R = 10, T = 8, B = 34, x0 = -130, x1 = -40, y0 = -25, y1 = 15;
+  { const { g, w, h } = mcanvas("mQual"), L = 40, R = 10, T = 8, B = 34;
+    let x0 = -130, x1 = -40, y0 = -25, y1 = 15;
+    if (autoScale && rx.length) {
+      const r0 = Math.min.apply(null, rx.map((r) => r.rssi)), r1 = Math.max.apply(null, rx.map((r) => r.rssi)), s0 = Math.min.apply(null, rx.map((r) => r.snr)), s1 = Math.max.apply(null, rx.map((r) => r.snr));
+      x0 = Math.floor((r0 - 8) / 10) * 10; x1 = Math.ceil((r1 + 8) / 10) * 10; if (x1 - x0 < 30) { const mid = (x0 + x1) / 2; x0 = Math.floor((mid - 15) / 10) * 10; x1 = x0 + 30; }
+      y0 = Math.floor((s0 - 3) / 5) * 5; y1 = Math.ceil((s1 + 3) / 5) * 5; if (y1 - y0 < 15) { const mid = (y0 + y1) / 2; y0 = Math.floor((mid - 7.5) / 5) * 5; y1 = y0 + 15; }
+    }
     const X = (v) => L + (v - x0) / (x1 - x0) * (w - L - R), Y = (v) => T + (1 - (v - y0) / (y1 - y0)) * (h - T - B);
     g.strokeStyle = grid; g.fillStyle = mut; g.lineWidth = 1; g.textAlign = "right"; g.textBaseline = "middle";
-    for (let v = -20; v <= 10; v += 10) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 6, Y(v)); }
+    const yStep = Math.max(5, Math.ceil((y1 - y0) / 4 / 5) * 5);
+    for (let v = Math.ceil(y0 / yStep) * yStep; v <= y1; v += yStep) { g.beginPath(); g.moveTo(L, Y(v) + .5); g.lineTo(w - R, Y(v) + .5); g.stroke(); g.fillText(v, L - 6, Y(v)); }
     g.textAlign = "center"; g.textBaseline = "top";
-    for (let v = -120; v <= -50; v += 20) { g.beginPath(); g.moveTo(X(v) + .5, T); g.lineTo(X(v) + .5, h - B); g.stroke(); g.fillText(v, X(v), h - B + 6); }
+    const xStep = Math.max(10, Math.ceil((x1 - x0) / 4 / 10) * 10);
+    for (let v = Math.ceil(x0 / xStep) * xStep; v <= x1; v += xStep) { g.beginPath(); g.moveTo(X(v) + .5, T); g.lineTo(X(v) + .5, h - B); g.stroke(); g.fillText(v, X(v), h - B + 6); }
     g.fillText("signal strength (dBm)", (L + w - R) / 2, h - 12); g.save(); g.translate(10, (T + h - B) / 2); g.rotate(-Math.PI / 2); g.fillText("SNR (dB)", 0, 0); g.restore();
     const lim = SNR_LIMIT[MESH.cfg.sf]; if (lim != null) { g.strokeStyle = bad; g.lineWidth = 1.5; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(L, Y(lim)); g.lineTo(w - R, Y(lim)); g.stroke(); g.setLineDash([]); }
     rx.slice(-400).forEach((r) => { g.fillStyle = mcol(r.type); g.globalAlpha = .75; g.beginPath(); g.arc(Math.max(L, Math.min(w - R, X(r.rssi))), Math.max(T, Math.min(h - B, Y(r.snr))), 3.2, 0, 6.2832); g.fill(); });
@@ -1385,6 +1395,7 @@ function meshCsv() {
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = "mesh-analyzer-" + new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") + ".csv"; document.body.appendChild(a); a.click(); a.remove();
 }
 $("mWin").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
+$("mScale").addEventListener("change", () => { MESH.dirty = true; meshDraw(); });
 $("mPause").addEventListener("click", () => { MESH.paused = !MESH.paused; $("mPause").setAttribute("aria-pressed", MESH.paused); $("mPause").textContent = MESH.paused ? "Resume" : "Pause"; if (!MESH.paused) meshDraw(); });
 $("mCsv").addEventListener("click", meshCsv);
 $("mClear").addEventListener("click", () => { MESH.recs = []; MESH.nf = []; MESH.dirty = true; meshDraw(); });
