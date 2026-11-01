@@ -1160,6 +1160,7 @@ html.otr #stdBtn, html.otr #tacBtn, html.otr #viewBar { display: none !important
           <label><input type="checkbox" id="showComp" checked> <span class="sw sw-comp"></span> Companions</label>
           <button id="btnFollow" aria-pressed="true">Follow me</button>
           <button id="btnFit">Show everything</button>
+          <label title="Sends the points of your trip to the public OSRM routing service over the internet so the line can be lined up with the roads. Off by that default."><input type="checkbox" id="snapRoads"> Snap trip to roads (online)</label>
           <label>Map <select id="tileSel" aria-label="Map source"><option value="carto">CARTO Voyager</option><option value="osm">OpenStreetMap</option></select></label>
         </div>
         <p class="hint" id="mapNote" hidden></p>
@@ -1880,7 +1881,7 @@ function addRoutePoint(g, ts) {
   if (!g || !g.fix || g.lat == null || g.lon == null) return false;
   const p = [+(+g.lat).toFixed(6), +(+g.lon).toFixed(6), Math.floor(ts / 1000)];
   const last = S.route[S.route.length - 1];
-  if (last && meters(last, p) < 8) return false;               // not moved: no new point
+  if (last && meters(last, p) < 4) return false;               // not moved: no new point
   S.route.push(p);
   if (S.route.length > 40000) S.route = S.route.filter((_, i) => i % 2 === 0 || i === S.route.length - 1);
   return true;
@@ -1994,7 +1995,7 @@ function initMap() {
   S.routeLine = L.polyline([], { color: "#6250d6", weight: 5, opacity: 0.95, lineJoin: "round", lineCap: "round", interactive: false }).addTo(S.map);
   S.you = L.circleMarker([0, 0], { radius: 9, color: "#ffffff", weight: 3, fillColor: "#6250d6", fillOpacity: 1, interactive: false });
   S.cov = L.marker([0, 0], { icon: L.divIcon({ className: "covDia", iconSize: [14, 14] }), keyboard: false, title: "Last place with a usable repeater" });
-  S.map.on("dragstart", () => setFollow(false));
+  S.map.on("dragstart", () => setFollow(false)); S.map.on("zoomend", routeWidth); routeWidth();
   rebuildNodeLayers();
   setTimeout(() => S.map.invalidateSize(), 200);
   S.fitted = false;
@@ -2010,15 +2011,46 @@ function fitAll() {
   S.map.fitBounds(L.latLngBounds(pts), { padding: [30, 30], maxZoom: 17 });
 }
 
+/* ---- trip line: rounded corners, width that follows the zoom, optional snapping to roads (public OSRM service, online only) ---- */
+const SNAP = { on: false, done: [], upto: 0, busy: false, dirty: false, failAt: 0 };
+try { SNAP.on = safeStore("get", "orion-snap") === "1"; } catch (e) { /* off */ }
+function chaikin(pts) { if (pts.length < 3) return pts; const o = [pts[0]]; for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1]; o.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]); } o.push(pts[pts.length - 1]); return o; }
+function routeSegments() {
+  const R = S.route; if (SNAP.upto > R.length) { SNAP.done = []; SNAP.upto = 0; }
+  const ll = (a) => a.map((p) => [p[0], p[1]]);
+  if (SNAP.on && SNAP.done.length) { const segs = SNAP.done.slice(), tail = ll(R.slice(SNAP.upto)); if (tail.length > 1) segs.push(chaikin(tail)); return segs; }
+  const all = ll(R), k = Math.max(0, all.length - 1500);
+  return [all.slice(0, k).concat(chaikin(all.slice(k)))];
+}
+async function snapMore() {
+  if (!SNAP.on || SNAP.busy || Date.now() - SNAP.failAt < 60000) return;
+  const R = S.route; if (SNAP.upto > R.length) { SNAP.done = []; SNAP.upto = 0; }
+  SNAP.busy = true;
+  try {
+    for (let guard = 0; guard < 40 && SNAP.on; guard++) {
+      const pts = []; let last = null, idx = SNAP.upto;
+      for (let i = SNAP.upto; i < R.length && pts.length < 80; i++) { const p = R[i]; if (!last || meters(last, p) >= 12) { pts.push(p); last = p; } idx = i + 1; }
+      if (pts.length < 40) break;
+      const url = "https://router.project-osrm.org/match/v1/driving/" + pts.map((p) => p[1] + "," + p[0]).join(";") + "?geometries=geojson&overview=full&gaps=ignore&radiuses=" + pts.map(() => 30).join(";");
+      const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json(); if (j.code !== "Ok" || !j.matchings || !j.matchings.length) throw new Error(j.code || "no match");
+      j.matchings.forEach((m) => SNAP.done.push(m.geometry.coordinates.map((c) => [c[1], c[0]])));
+      SNAP.upto = Math.max(SNAP.upto + 1, idx - 1); SNAP.dirty = true;
+    }
+  } catch (e) { SNAP.failAt = Date.now(); const n = $("mapNote"); if (n) { n.hidden = false; n.textContent = "Could not line the trip up with roads just now (" + (e.message || e) + "). The plain trip line is shown; it will try again in a minute."; } }
+  SNAP.busy = false;
+}
+function routeWidth() { if (!S.map || !S.routeLine) return; const z = S.map.getZoom(), w = Math.max(3, Math.min(10, Math.round((z - 8) * 0.8) + 2)); S.routeLine.setStyle({ weight: w }); S.routeCase.setStyle({ weight: w + 4 }); }
 let _routeShown = -1;
 function renderLiveMap(f) {
   const t = (f && f.trip) || {}, g = (f && f.gps) || {};
   $("tripNote").textContent = (t.km != null ? t.km.toFixed(1) + " km" : "") + (t.tot_s ? ", " + fmtDur(t.tot_s) + ", top " + (t.top || 0) + " " + ((f && f.unit) || "km/h") : "") + (S.route.length ? " · " + S.route.length + " route points" : "");
   if (!window.L) return;
   initMap(); if (!S.map) return;
-  if (S.route.length !== _routeShown) {
-    const ll = S.route.map((p) => [p[0], p[1]]);
-    S.routeLine.setLatLngs(ll); S.routeCase.setLatLngs(ll); _routeShown = S.route.length;
+  if (S.route.length !== _routeShown || SNAP.dirty) {
+    const segs = routeSegments();
+    S.routeLine.setLatLngs(segs); S.routeCase.setLatLngs(segs); _routeShown = S.route.length; SNAP.dirty = false;
+    if (SNAP.on) snapMore();
   }
   if (g.fix && g.lat != null) {
     S.you.setLatLng([g.lat, g.lon]); if (!S.map.hasLayer(S.you)) S.you.addTo(S.map);
@@ -2321,6 +2353,7 @@ $("btnClearFound").addEventListener("click", () => {
 $("btnCsv").addEventListener("click", downloadCsv); $("btnGeo").addEventListener("click", downloadGeo); $("btnGpx").addEventListener("click", downloadGpx);
 $("btnFollow").addEventListener("click", () => { setFollow(!S.follow); if (S.follow && S.frame && S.frame.gps && S.frame.gps.fix && S.map) S.map.panTo([S.frame.gps.lat, S.frame.gps.lon]); });
 $("btnFit").addEventListener("click", fitAll);
+{ const sr = $("snapRoads"); if (sr) { sr.checked = SNAP.on; sr.addEventListener("change", () => { SNAP.on = sr.checked; safeStore("set", "orion-snap", SNAP.on ? "1" : "0"); SNAP.failAt = 0; if (SNAP.on) { SNAP.done = []; SNAP.upto = 0; } SNAP.dirty = true; if (SNAP.on) snapMore(); }); } }
 $("showRep").addEventListener("change", (e) => { if (!S.map) return; if (e.target.checked) S.map.addLayer(S.gRep); else S.map.removeLayer(S.gRep); });
 $("showComp").addEventListener("change", (e) => { if (!S.map) return; if (e.target.checked) S.map.addLayer(S.gComp); else S.map.removeLayer(S.gComp); });
 
@@ -3645,7 +3678,7 @@ if (document.readyState === "loading") document.addEventListener("DOMContentLoad
 <script id="updates-js">
 (function () {
   "use strict";
-  const DASH_ID = "tactical", DASH_VERSION = "1.3.2";
+  const DASH_ID = "tactical", DASH_VERSION = "1.4.0";
   const FW_REPO = "propertymonitor-web/firmware_updates", DASH_REPO = "propertymonitor-web/dashboard_updates";
   const RAW = (repo, path) => "https://raw.githubusercontent.com/" + repo + "/main/" + path;
   const ESPTOOL = "https://cdn.jsdelivr.net/npm/esptool-js@0.5.7/bundle.js";
