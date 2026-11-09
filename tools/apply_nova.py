@@ -146,14 +146,14 @@ void MyMesh::novaTick(uint32_t nv_now) {
     nv_len = 0;
     if (strncmp(nv_line, "nova", 4) != 0 || (nv_line[4] != 0 && nv_line[4] != ' ')) continue;
     int nv_hour = nova::Nova::localHour(getRTCClock()->getCurrentTime(), _prefs.tz_offset);
-    if (strncmp(nv_line + 4, " json", 5) == 0) { nv_next_json = 0; nova_core.dash_on = true; nova_core.dash_until_ms = nv_now + 4000u; continue; }
+    if (strncmp(nv_line + 4, " json", 5) == 0) { nv_next_json = nv_now; nova_core.dash_on = true; nova_core.dash_until_ms = nv_now + 4000u; continue; }
     char nv_reply[160];
     nova_core.runCommand(nv_line + 4, nv_reply, sizeof(nv_reply), nv_now, nv_hour);
     Serial.print("# ");
     Serial.println(nv_reply);
   }
   static bool nv_was_on = false;
-  if (nova_core.dash_on && !nv_was_on) nova_core.found.markAllDirty();   // a page just connected: send it everything found so far
+  if (nova_core.dash_on && !nv_was_on) { nova_core.found.markAllDirty(); nv_next_json = nv_now; }   // a page just connected: send it everything found so far, now
   nv_was_on = nova_core.dash_on;
   if (nova_core.dash_on && (int32_t)(nv_now - nv_next_json) >= 0) {
     nv_next_json = nv_now + 1000u;
@@ -290,6 +290,26 @@ ALERT_CHAN = '''  bool ls_alert = nova_core.mayAlert(false, nova::Nova::localHou
 '''
 
 
+CREDIT_MARK = "LODESTAR-CREDIT"
+CREDIT_CPP = """// ===========================================================================  LODESTAR-CREDIT
+// Engineered by Aries Thorne & Todd Steinhauer for Wolf Reactive Systems (WRS),
+// with MeshCore community guidance and assistance.
+// ===========================================================================
+__attribute__((used)) static const char LODESTAR_CREDIT[] = "Engineered by Aries Thorne & Todd Steinhauer for Wolf Reactive Systems (WRS), with MeshCore community guidance and assistance.";
+"""
+
+
+def add_credit(path):
+    """Put the credit at the top of the patched source file (a comment, and a string that stays in the firmware image). Safe to run twice."""
+    with open(path) as f:
+        t = f.read()
+    if CREDIT_MARK in t:
+        return
+    with open(path, "w") as f:
+        f.write(CREDIT_CPP + t)
+
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--meshcore", required=True, help="path to a MeshCore checkout")
@@ -366,7 +386,7 @@ def main():
               "render interval")
     u = patch(u, r"(#ifndef UI_NO_HIBERNATE\n    if \(c == KEY_ENTER && _page == HomePage::SHUTDOWN\) \{)",
               lambda m: KEY_PAGES + m.group(1), "handleInput: SHUTDOWN key")
-    # boot splash: emblem + LODESTAR / NOVA / role / FEAR REACTIVE instead of the MeshCore logo, on screen 5 s (stock is 3 s)
+    # boot splash: emblem + LODESTAR / NOVA / role / Wolf Reactive Systems (WRS) instead of the MeshCore logo, on screen 5 s (stock is 3 s)
     u = patch(u, r"#define BOOT_SCREEN_MILLIS   3000   // 3 seconds", "#define BOOT_SCREEN_MILLIS   5000   // 5 seconds: long enough to read the emblem splash", "boot screen time")
     u = patch(u, r"(  int render\(DisplayDriver& display\) override \{\n)    // meshcore logo.*?(    return 1000;\n)",
               lambda m: m.group(1) + "    novaui::splash(display, _version_info);   // LODESTAR NOVA\n" + m.group(2), "splash screen", flags=re.S)
@@ -387,10 +407,31 @@ def main():
         with open(p, "w") as f:
             f.write(body)
 
+    # ---- main.cpp: a Bluetooth PIN that survives restarts --------------------------
+    # Stock MeshCore picks a NEW random pairing PIN every time a radio with a screen starts, so any restart breaks the phone's saved pairing.
+    # Here the PIN is worked out from the chip's own unique ID, so it is the same at every restart and nothing is written to flash at boot (the PIN screen shows it; "set pin" still overrides it).
+    mp = os.path.join(comp, "main.cpp")
+    with open(mp) as f:
+        m = f.read()
+    m = patch(m, r"      StdRNG rng;\n      the_mesh\.setBLEPin\(rng\.nextInt\(100000, 999999\)\); // random pin each session\n",
+              "      StdRNG rng;\n"
+              "#if defined(ESP32)\n"
+              "      // LODESTAR: the PIN comes from the chip's own unique ID, so it is the same at every restart and nothing has to be written to flash at boot\n"
+              "      uint64_t ls_mac = ESP.getEfuseMac(); uint32_t ls_h = 2166136261u;\n"
+              "      for (int ls_i = 0; ls_i < 6; ls_i++) { ls_h ^= (uint8_t)(ls_mac >> (8 * ls_i)); ls_h *= 16777619u; }\n"
+              "      the_mesh.setBLEPin(100000 + ls_h % 900000);\n"
+              "#else\n"
+              "      the_mesh.setBLEPin(rng.nextInt(100000, 999999)); // random pin each session\n"
+              "#endif\n", "persistent BLE pin")
+    with open(mp, "w") as f:
+        f.write(m)
+
+    add_credit(paths["c"])
     print("LODESTAR NOVA applied:")
     print("  + src/helpers/Nova.h, src/helpers/Lodestar.h, examples/companion_radio/ui-new/NovaPages.h")
     print("  ~ examples/companion_radio/MyMesh.h        (hooks)")
     print("  ~ examples/companion_radio/MyMesh.cpp      (packet hooks, send/ack tracking, settings, dashboard link)")
+    print("  ~ examples/companion_radio/main.cpp       (Bluetooth PIN comes from the chip ID, so it stays the same)")
     print("  ~ examples/companion_radio/ui-new/UITask.cpp (7 new screens, splash, quiet hours, profile screen timeout)")
 
 

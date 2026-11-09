@@ -1,0 +1,19 @@
+
+<div class="hud" role="status" aria-label="Station status strip">
+  <span>Zulu<b id="hudZ">--:--:--</b></span><span>Local<b id="hudL">--:--:--</b></span><span id="hudLinkW">Link<b id="hudLink">OFFLINE</b></span>
+  <span>Rep/Cmp/Room 15 min<b id="hudC">0/0/0</b></span><span>GPS<b id="hudG">N/A</b></span><span>MNA<b id="hudM">STANDBY</b></span><span>Rx/Tx<b id="hudP">0/0</b></span><span>Noise<b id="hudN">--</b></span>
+  <span>Board<b>Heltec V4.3 R2 / V4 R8</b></span>
+</div>
+<section class="panel" id="radarCard" aria-label="Radar">
+  <h2>Radar <span class="note">contacts heard now, from the contact list and live Mesh Analyzer packets</span></h2>
+  <div class="radargrid">
+    <div class="radarbox"><canvas id="radarCv" role="img" aria-label="Radar of the repeaters, companions and room servers this radio has heard recently. The same contacts are listed beside it."></canvas><div class="radartip" id="radarTip" hidden></div></div>
+    <div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label for="radarWin" class="note" style="color:var(--muted)">Show contacts heard in the last</label>
+        <select id="radarWin" style="padding:8px 10px;max-width:170px"><option value="300000">5 minutes</option><option value="900000" selected>15 minutes</option><option value="3600000">1 hour</option></select></div>
+      <div id="radarList" class="radarlist" style="margin-top:10px"></div>
+      <div class="radarleg"><span><b style="color:var(--rep)">&#9679;</b> repeater</span><span><b style="color:var(--comp)">&#9650;</b> companion</span><span><b style="color:var(--room)">&#9670;</b> room server</span><span>solid = position known</span><span>hollow = placed by signal strength</span><span>ring = packet just heard</span></div>
+      <p id="radarNote" style="margin:8px 0 0;color:var(--muted);font-size:14px"></p>
+    </div>
+  </div>
+</section>

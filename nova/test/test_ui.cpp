@@ -56,7 +56,7 @@ int main() {
     Mock m5; pageBack(m5, N, now, false);   CHECK(m5.has("needs GPS"));
     Mock m6; pageBack(m6, N, now, true);    CHECK(m6.has("waiting for a GPS fix"));
     Mock m7; pageBatt(m7, N, now);          CHECK(m7.has("no reading"));
-    Mock m8; pageSettings(m8, N, now, 0);   CHECK(m8.has(NOVA_PRODUCT " 0.1.0-beta") && m8.has("profile car"));
+    Mock m8; pageSettings(m8, N, now, 0);   CHECK(m8.has(NOVA_PRODUCT " 0.1.2-beta") && m8.has("profile car"));
     Mock m9; pageQuiet(m9, N, -1); CHECK(m9.has("OFF") && m9.bad == 0);
     N.cfg.quiet_on = true; N.cfg.quiet_start = 22; N.cfg.quiet_end = 7;
     Mock m10; pageQuiet(m10, N, 23); CHECK(m10.has("ON  22:00 to 07:00") && m10.has("quiet right now") && m10.bad == 0);
@@ -94,7 +94,7 @@ int main() {
     CHECK(!(m.bad + m2.bad + m3.bad + m3b.bad + m3c.bad + m3d.bad + m4.bad + m5.bad + m6.bad + m6b.bad + m7.bad + m8.bad));
   }
   // ---- splash fits, and says who made it ----
-  { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.xbm == 1 && m.has("LODESTAR") && m.has(NOVA_PRODUCT) && m.has("FEAR REACTIVE") && m.has(NOVA_ROLE_FOR_TEST));
+  { Mock m; splash(m, "v1.15.0"); CHECK(m.bad == 0 && m.xbm == 1 && m.has("LODESTAR") && m.has(NOVA_PRODUCT) && (m.has("WRS") || m.has("TACTICAL")) && m.has(NOVA_ROLE_FOR_TEST));
 #ifdef NOVA_ORION
     CHECK(m.has("Aries Thorne") && m.has("Todd Steinhauer"));
 #endif

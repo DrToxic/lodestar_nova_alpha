@@ -193,13 +193,13 @@ jobs:
         run: |
           BIN="MeshCore/.pio/build/$FW_ENV/firmware.elf"
           SFX=""; [ "$EDITION" = "orion" ] && SFX="-orion"
-          if [ "$UNITS" = "mph" ]; then WANT="0.1.0-beta$SFX-mph"; else WANT="0.1.0-beta$SFX"; fi
+          if [ "$UNITS" = "mph" ]; then WANT="0.1.2-beta$SFX-mph"; else WANT="0.1.2-beta$SFX"; fi
           strings -n 8 "$BIN" | grep -F "$WANT" | head -3
           strings -n 8 "$BIN" | grep -q -x -F "$WANT" || { echo "::error::The version marker $WANT is missing from the build."; exit 1; }
           # the wrong variants must not be in there
-          if [ "$UNITS" = "mph" ]; then WRONGU="0.1.0-beta$SFX"; else WRONGU="0.1.0-beta$SFX-mph"; fi
+          if [ "$UNITS" = "mph" ]; then WRONGU="0.1.2-beta$SFX"; else WRONGU="0.1.2-beta$SFX-mph"; fi
           if strings -n 8 "$BIN" | grep -q -x -F "$WRONGU"; then echo "::error::The build contains the other speed unit's marker ($WRONGU)."; exit 1; fi
-          if [ "$EDITION" = "orion" ]; then OTHER="0.1.0-beta"; [ "$UNITS" = "mph" ] && OTHER="0.1.0-beta-mph"; else OTHER="0.1.0-beta-orion"; [ "$UNITS" = "mph" ] && OTHER="0.1.0-beta-orion-mph"; fi
+          if [ "$EDITION" = "orion" ]; then OTHER="0.1.2-beta"; [ "$UNITS" = "mph" ] && OTHER="0.1.2-beta-mph"; else OTHER="0.1.2-beta-orion"; [ "$UNITS" = "mph" ] && OTHER="0.1.2-beta-orion-mph"; fi
           if strings -n 8 "$BIN" | grep -q -x -F "$OTHER"; then echo "::error::The build contains the other edition's marker ($OTHER)."; exit 1; fi
 
       - name: Collect files
@@ -244,7 +244,7 @@ jobs:
               HOW="Download firmware-merged.bin and flash it at https://flasher.meshcore.io (Custom Firmware). firmware.bin is the application-only image for updating an existing install."
               FILES="out/firmware-merged.bin out/firmware.bin out/dashboard.html" ;;
           esac
-          NOTES="$PRODUCT $WHAT for $BOARD, by FEAR REACTIVE. Beta test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
+          NOTES="$PRODUCT $WHAT for $BOARD, by Wolf Reactive Systems (WRS). Beta test build ($FW_ENV, $UNITS speeds) on MeshCore commit $MC.
 
           $HOW dashboard.html is the browser dashboard, the same page as the repository's docs folder. See the README for setup and testing notes."
           if gh release view "$TAG" >/dev/null 2>&1; then

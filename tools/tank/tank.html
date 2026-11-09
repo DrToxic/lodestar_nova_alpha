@@ -1,0 +1,23 @@
+
+<section class="panel viewbar" id="viewBar" aria-label="Top of the dashboard">
+  <span class="vb-t" id="viewLbl">Show at the top</span>
+  <div class="seg" id="viewSeg" role="radiogroup" aria-labelledby="viewLbl">
+    <button type="button" role="radio" aria-checked="false" data-view="none">No pet</button>
+    <button type="button" role="radio" aria-checked="true" data-view="pet">Pet</button>
+    <button type="button" role="radio" aria-checked="false" data-view="tank">Shark tank</button>
+  </div>
+  <a class="tacbtn" id="tacBtn" href="#tactical" title="Open the ORION TACTICAL DASHBOARD (LODESTAR ORION on Heltec V4.3 R2 or V4 R8, with the Mesh Analyzer)">Tactical mode</a>
+  <span class="vb-note" id="viewNote"></span>
+</section>
+<section class="tankwrap" id="tankPanel" hidden aria-label="Shark tank">
+  <div class="tk-grid">
+    <aside class="tk-side" id="tankL" aria-label="Live readouts and repeaters"></aside>
+    <div class="tk-mid">
+      <div class="tk-stage" id="tkStage"><canvas id="tankCv" role="img" aria-label="A saltwater aquarium with sharks, reef fish and a sunken ship. A boat drops chum for the sharks after every 30 to 40 repeater hears."></canvas><div class="tk-tip" id="tkTip" hidden></div></div>
+      <div class="tk-bar"><button type="button" id="tkPause">Pause</button><button type="button" id="tkNew">New tank</button><button type="button" id="tkSave">Save picture</button><button type="button" id="tkFull">Full screen</button></div>
+      <p class="tk-cap" id="tkCap" aria-live="off"></p><p class="tk-cap" id="tkWho"></p>
+      <p class="tk-cap">Tap the water to drop food. Hover a creature to see what it is.</p>
+    </div>
+    <aside class="tk-side" id="tankR" aria-label="Map, nodes and controls"></aside>
+  </div>
+</section>

@@ -1,6 +1,6 @@
 # LODESTAR NOVA
 
-### A smarter MeshCore companion for the Heltec V4 R2 and the XIAO nRF52840, by FEAR REACTIVE
+### A smarter MeshCore companion for the Heltec V4 R2 and the XIAO nRF52840, by Wolf Reactive Systems (WRS)
 
 **Version v0.1.0-beta** (beta test release). **Boards:** Heltec WiFi LoRa 32 **V4 R2** (with screen) and Seeed Studio **XIAO nRF52840 + Wio-SX1262** (no screen). See [supported boards](#supported-boards).
 
@@ -44,7 +44,7 @@ Other changes:
 
 - **Power profiles** (*hike*, *car*, *desk*): how long the screen stays on, and how quickly old repeaters fade from the ranking (a car passes repeaters in minutes, a desk never does).
 - **Quiet hours:** no sound, vibration or screen wake for incoming messages between two hours you choose. Messages from contacts you marked as favourites still alert. If the radio's clock has never been set, quiet hours stay off rather than guess.
-- **Boot splash:** LODESTAR / NOVA / by FEAR REACTIVE.
+- **Boot splash:** LODESTAR / NOVA / by WRS.
 - **Dashboard** for your computer, described [below](#the-dashboard).
 
 NOVA only listens and keeps score. It does not change how packets are routed, and it never sends anything on its own except the single discovery request when you use the Range screen.
@@ -140,7 +140,7 @@ Your profile and quiet-hour settings are saved to the board's flash the moment y
 
 If you are helping to test, these are the most useful things to learn:
 
-1. Does it flash cleanly, show the **LODESTAR / NOVA / by FEAR REACTIVE** splash, and pair with the phone app as before?
+1. Does it flash cleanly, show the **LODESTAR / NOVA / by WRS** splash, and pair with the phone app as before?
 2. Do all eight screens draw cleanly, and does the page-dot row at the top still fit?
 3. Does the **Link** screen list the repeaters you know are nearby after about 10 minutes?
 4. Send a message from the phone. Does **Sent** go from *sent* to *heard by* to *delivered*? Does a message to someone out of range end as *failed*?
@@ -189,8 +189,12 @@ The finished files are in `MeshCore/.pio/build/heltec_v4_companion_radio_ble/`: 
 
 ## Credits and responsibility
 
-NOVA is built on **MeshCore**, an open-source project; please see the MeshCore repository for its license terms and documentation. NOVA is a community give-away from FEAR REACTIVE, provided as is, with no warranty.
+NOVA is built on **MeshCore**, an open-source project; please see the MeshCore repository for its license terms and documentation. NOVA is a community give-away from Wolf Reactive Systems (WRS), provided as is, with no warranty.
 
 Transmit only where and how your local regulations allow (frequency, power, duty cycle; the V4's transmit-power setting is not the same number as the power at the antenna), and follow your local mesh community's norms.
 
-**LODESTAR NOVA by FEAR REACTIVE**
+**LODESTAR NOVA by Wolf Reactive Systems (WRS)**
+
+## ORION TACTICAL DASHBOARD
+
+`docs/tactical.html` is a separate dashboard for LODESTAR ORION on the Heltec V4.3 R2 and V4 R8: tactical look, a radar of the contacts heard, and the Mesh Analyzer up front, with no pet or tank. The **Tactical mode** button next to the view selector switches the standard dashboard into it *inside the same page*, so the USB connection to the radio is not closed and reopened (some boards restart when the port is reopened); **Standard dashboard** switches back. `tactical.html` is the same page opened in tactical mode, and it is also attached to every ORION release (it works on its own, no other file needed). Tactical mode also puts the radar on the radio's OLED (`nova tac 1`); switching back restores the pet (`nova tac 0`). Rebuild with `python3 tools/build_tank.py && python3 tools/build_tactical.py`.

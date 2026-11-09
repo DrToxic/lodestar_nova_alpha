@@ -1,0 +1,23 @@
+[hidden]{display:none!important}
+.viewbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-bottom:12px;padding:10px 14px}
+.vb-t{font-weight:600}.vb-note{color:var(--muted);font-size:.9em}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--line);background:transparent;color:var(--ink);padding:8px 16px;font:inherit;cursor:pointer;min-height:40px}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--accent);color:#fff;font-weight:600}
+.seg button:focus-visible,.tk-bar button:focus-visible{outline:3px solid var(--accent);outline-offset:-3px}
+.wrap.tank-wide{max-width:1840px}
+.tk-grid{display:grid;grid-template-columns:minmax(260px,1fr) minmax(0,2.5fr) minmax(260px,1fr);gap:12px;align-items:start;margin-bottom:12px}
+.tk-side{display:grid;gap:12px;align-content:start;max-height:var(--tkH,640px);overflow-y:auto;overflow-x:hidden;min-width:0;padding-right:2px;scrollbar-width:thin}
+.tk-side .readouts{grid-template-columns:1fr 1fr;margin-bottom:0}
+.tk-side .col{gap:12px}.tk-side .panel{overflow-x:auto}
+.tk-mid{min-width:0}
+.tk-stage{position:relative;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#06203a;aspect-ratio:16/9}
+.tk-stage canvas{display:block;width:100%;height:100%}
+.tk-tip{position:absolute;pointer-events:none;background:rgba(0,12,28,.88);color:#fff;padding:5px 9px;border-radius:6px;font-size:.85em;max-width:260px}
+.tk-bar{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 6px}
+.tk-bar button{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;min-height:40px}
+.tk-cap{margin:4px 0;color:var(--muted);font-size:.92em}
+@media (max-width:1000px){.tk-grid{grid-template-columns:minmax(0,1fr)}.tk-side{max-height:none;overflow:visible}.tk-mid{order:-1}}
+body.no-petpanel #petPanel{display:none!important}
+.tacbtn{display:inline-flex;align-items:center;min-height:40px;padding:8px 16px;border:2px solid var(--accent);border-radius:8px;color:var(--accent);text-decoration:none;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.tacbtn:hover{background:var(--accent);color:var(--panel)}.tacbtn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
