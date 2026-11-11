@@ -1088,7 +1088,7 @@ html.otr #stdBtn, html.otr #tacBtn, html.otr #viewBar { display: none !important
       <button id="petPng">Save picture</button>
       <button id="petGrid" aria-pressed="false">Pixel grid</button>
     </div>
-    <div class="petname">
+    <div class="petname" id="petNameBox" hidden>
       <label for="petNameIn">Name your pet</label>
       <input id="petNameIn" type="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="up to 7 characters" disabled>
       <button id="petNameSet" disabled>Set name</button>
@@ -1470,6 +1470,7 @@ function petCaption() {
 }
 function petState(msg, bad) { const e = $("petState"); e.textContent = msg; e.classList.toggle("bad", !!bad); e.hidden = !msg; }
 function petAsk() {                    // called with every keep-alive while connected
+  if (PC.dx && !pcCap("pet")) return;     // a DX-Pro radio without a pet is not asked for one
   send("nova pet");
   PET.asks = (PET.asks || 0) + 1;
   if (!PET.seen) {
@@ -1493,6 +1494,7 @@ $("btnPet").addEventListener("click", () => { $("petPanel").scrollIntoView({ beh
 $("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
 $("petPng").addEventListener("click", () => { $("petCanvas").toBlob((bl) => { const a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = "pet.png"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }); });
 function petNameSend() {
+  if (PC.dx && !pcCap("petname")) return;
   const v = $("petNameIn").value.replace(/[^A-Za-z0-9 .\-_'!?]/g, "").trim().slice(0, 7);
   send("nova petname " + (v || "-"));
   $("petNameIn").dataset.shown = ""; cmdLog(v ? "Naming the pet " + v + "\u2026" : "Clearing the pet's name\u2026");
@@ -1505,23 +1507,61 @@ $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid"
 /* ---- pet actions, mesh contacts and radio keys. All of it stays hidden until the radio has answered "nova hello" and is an Orion radio.
    Everything sent is one fixed line; everything the radio sends back is shown as plain text only (textContent, never HTML). ---- */
 const PC = {
-  ok: false, orion: false, pend: null, sticky: 0, holdMs: 700, holdTimer: null,
-  reset() { this.ok = false; this.orion = false; this.pend = null; this.sticky = 0; clearTimeout(this.holdTimer); this.holdTimer = null; },
+  ok: false, orion: false, dx: false, caps: null, list: null, sig: "", pend: null, sticky: 0, holdMs: 700, holdTimer: null,
+  reset() { this.ok = false; this.orion = false; this.dx = false; this.caps = null; this.list = null; this.sig = ""; this.pend = null; this.sticky = 0; if (typeof S !== "undefined") S.dxpro = false; clearTimeout(this.holdTimer); this.holdTimer = null; },
 };
 const PC_FIXED = ["nova clean", "nova feed", "nova guess higher", "nova guess lower", "nova guess new", "nova contacts",
   "nova key up", "nova key down", "nova key left", "nova key right", "nova key enter", "nova key back", "nova key hold-enter"];
 const PC_TARGET = /^nova (ping|sendpet) [0-9a-f]{12}$/;
-const pcReady = () => S.mode === "serial" && PC.ok && PC.orion;
-function pcSync() {                    // show or hide the whole block
+/* What a LoRagotchi DX-Pro radio must answer to "nova hello" (one line, and nothing is shown until it arrives):
+   {"ed":"dx-pro","nova":{"v":1,"caps":{"pet":1,"mesh":0,"contacts":1,"petname":1,"keys":0,"clean":0,"feed":0,"guess":0,"ping":0,"sendpet":0}}}
+   Every control is shown only when its capability is a number above 0 (or true). A missing, unknown or non-number capability means hidden; unknown keys are ignored.
+   A LODESTAR ORION radio (ed "orion") keeps the old behaviour: all controls once it has answered. */
+const PC_CAPS = ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet"];
+const PC_CMDCAP = { "nova clean": "clean", "nova feed": "feed", "nova guess higher": "guess", "nova guess lower": "guess", "nova guess new": "guess", "nova contacts": "contacts",
+  "nova key up": "keys", "nova key down": "keys", "nova key left": "keys", "nova key right": "keys", "nova key enter": "keys", "nova key back": "keys", "nova key hold-enter": "keys" };
+const pcReady = () => S.mode === "serial" && PC.ok && (PC.orion || PC.dx);
+const pcCap = (k) => (PC.dx ? !!(PC.caps && PC.caps[k] === true) : PC.orion);   // orion: everything; dx-pro: only what its hello listed
+function pcSync() {                    // show or hide the whole block, and each control by capability
   const b = $("pcBox"); if (!b) return;
-  const show = pcReady();
-  if (b.hidden === show) b.hidden = !show;
-  if (!show) { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
+  const ready = pcReady(), on = (k) => ready && pcCap(k);
+  const set = (id, show) => { const e = $(id); if (e && e.hidden === show) e.hidden = !show; };
+  const pet = on("clean") || on("feed") || on("guess"), mesh = on("contacts"), keys = on("keys");
+  set("pcPet", pet); set("pcClean", on("clean")); set("pcFeed", on("feed")); set("pcGuessPlay", on("guess"));
+  if (!on("guess")) set("pcGuessRow", false);                      // the higher/lower row is opened by the Play button
+  set("pcMesh", mesh); set("pcRefresh", mesh); set("pcContacts", mesh); set("pcMeshNote", mesh);
+  set("pcKeys", keys); set("pcKeyClean", keys && on("clean"));
+  ["pcKeyUp", "pcKeyDown", "pcKeyLeft", "pcKeyRight", "pcKeyEnter", "pcKeyBack"].forEach((id) => set(id, keys));
+  set("pcBox", pet || mesh || keys);
+  const sig = (on("ping") ? "p" : "") + (on("sendpet") ? "s" : "");
+  if (sig !== PC.sig) { PC.sig = sig; if (PC.list) pcShowContacts(PC.list); }     // Ping / Send pet buttons follow their own capability
+  set("petNameBox", S.mode === "demo" ? true : on("petname"));
+  if (PC.dx) {                                                     // a DX-Pro radio decides which panels exist
+    set("petPanel", pcCap("pet")); set("btnPet", pcCap("pet"));
+    if (!pcCap("mesh")) set("meshPanel", false);                   // (the mesh panel opens itself when mesh data arrives, but only if the capability is on)
+  }
+  if (!ready) { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
 }
-function pcNote(orion) { PC.ok = true; if (orion) PC.orion = true; pcSync(); }   // the radio answered: a frame, a mesh or pet line, or the bare "OK"
+function pcNote(orion) { PC.ok = true; if (orion && !PC.dx) PC.orion = true; pcSync(); }   // the radio answered: a frame, a mesh or pet line, or the bare "OK". A DX-Pro radio is never promoted to Orion by it.
+function pcBrand() {                   // title and brand, like the Orion branch (text only, no HTML)
+  const t = "LORAGOTCHI DX-PRO dashboard";
+  if (document.title !== t) document.title = t;
+  const br = document.querySelector(".brand");
+  if (br && br.textContent !== "LORAGOTCHI DX-PROdashboard") { const sm = document.createElement("small"); sm.textContent = "dashboard"; br.replaceChildren(); br.appendChild(document.createTextNode("LORAGOTCHI DX-PRO")); br.appendChild(sm); }
+}
+function pcHello(o) {                  // true when o is a known DX-Pro hello; anything else is left alone
+  const n = o && o.nova, c = n && n.caps;
+  if (!o || o.ed !== "dx-pro" || !n || typeof n !== "object" || typeof n.v !== "number" || !(N(n.v) >= 1) || !c || typeof c !== "object" || Array.isArray(c)) return false;
+  const caps = {};
+  PC_CAPS.forEach((k) => { const v = c[k]; caps[k] = typeof v === "number" ? N(v) > 0 : v === true; });
+  PC.dx = true; PC.orion = false; PC.ok = true; PC.caps = caps;
+  S.dxpro = true; S.lastAt = performance.now();                    // a hello is a sign of life: the status reads "Live", not "waiting for data"
+  pcBrand(); pcSync(); return true;
+}
 function pcSend(cmd, logId) {
   if (!pcReady()) return false;
   if (PC_FIXED.indexOf(cmd) < 0 && !PC_TARGET.test(cmd)) return false;          // only the lines this page knows, plus ping/sendpet to a 12-hex id
+  const cap = PC_CMDCAP[cmd] || (PC_TARGET.test(cmd) ? cmd.split(" ")[1] : ""); if (!cap || !pcCap(cap)) return false;   // and only if the radio said it can do it
   PC.pend = { log: logId, until: Date.now() + 8000 };
   const e = $(logId); if (e) e.textContent = "Sent: " + cmd;
   send(cmd); return true;
@@ -1544,6 +1584,7 @@ function pcParseContacts(line) {       // {"contacts":[{"n":"name","id":"12hexch
   return out;
 }
 function pcShowContacts(list) {
+  PC.list = list;
   const ul = $("pcContacts"); ul.replaceChildren();
   list.forEach((c) => {
     const li = document.createElement("li"), nm = document.createElement("span"), id = document.createElement("span");
@@ -1553,11 +1594,12 @@ function pcShowContacts(list) {
     ping.setAttribute("aria-label", "Ping " + (c.n || c.id)); pet.setAttribute("aria-label", "Send pet to " + (c.n || c.id));
     ping.addEventListener("click", () => pcSend("nova ping " + c.id, "pcMeshLog"));
     pet.addEventListener("click", () => pcSend("nova sendpet " + c.id, "pcMeshLog"));
-    li.appendChild(nm); li.appendChild(id); li.appendChild(ping); li.appendChild(pet); ul.appendChild(li);
+    li.appendChild(nm); li.appendChild(id); if (pcCap("ping")) li.appendChild(ping); if (pcCap("sendpet")) li.appendChild(pet); ul.appendChild(li);
   });
   $("pcMeshNote").textContent = list.length ? list.length + (list.length === 1 ? " contact" : " contacts") : "No contact the radio can reach yet.";
 }
 function onContactsLine(line) {
+  if (PC.dx && !pcCap("contacts")) return;                          // this radio did not say it has contacts
   const list = pcParseContacts(line); if (!list) return;
   pcShowContacts(list);
   const p = PC.pend; if (p && p.log === "pcMeshLog") PC.pend = null;
@@ -1582,7 +1624,7 @@ $("pcGuessPlay").addEventListener("click", () => { $("pcGuessRow").hidden = fals
   b.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); if (!e.repeat) pcEnterDown(); });
   b.addEventListener("keyup", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); pcEnterUp(); });
 })();
-setInterval(pcSync, 1000);
+setInterval(pcSync, 1000); pcSync();
 /*PETCTL-END*/
 
 /* ------------------------------------------------------------------ mesh analyzer */
@@ -1618,7 +1660,7 @@ function onMeshLine(line) {
   });
   if (MESH.recs.length > 6000) MESH.recs.splice(0, MESH.recs.length - 6000);
   if (!MESH.t0) MESH.t0 = now;
-  const pp = $("meshPanel"); if (pp.hidden) { pp.hidden = false; }
+  const pp = $("meshPanel"); if (pp.hidden && !(PC.dx && !pcCap("mesh"))) { pp.hidden = false; }
   MESH.dirty = true;
 }
 function mcanvas(id) {
@@ -1772,7 +1814,7 @@ $("mTime").addEventListener("mousemove", (e) => {
   if (!best) return; const r = best.r, nm = meshNameFor(r.id);
   $("mHover").textContent = mfmtT(r.t) + " · " + (r.tx ? "sent " : "") + MTYPE[r.type] + (r.tx ? "" : " · " + r.rssi + " dBm · SNR " + r.snr.toFixed(1) + " dB") + " · " + (r.hops ? r.hops + " hop" + (r.hops > 1 ? "s" : "") : "direct") + " · " + r.len + " bytes" + (r.id ? " · from " + (nm ? nm + " (" + r.id + ")" : r.id) : "");
 });
-setInterval(() => { const pp = $("petPanel"); if (pp) pp.hidden = !!(MESH.seen && Date.now() - MESH.seen < 8000 && !PET.seen && PET.asks > 3);   // a build without a pet has nothing to show there
+setInterval(() => { const pp = $("petPanel"); if (pp && !PC.dx) pp.hidden = !!(MESH.seen && Date.now() - MESH.seen < 8000 && !PET.seen && PET.asks > 3);   // a build without a pet has nothing to show there
   if ($("meshPanel").hidden) return; if (MESH.seen && Date.now() - MESH.seen > 8000) $("meshNote").textContent = "no data from the radio for a while"; else $("meshNote").textContent = "every packet this radio hears, live · LODESTAR ORION + Mesh Analyzer firmware"; meshDraw(); }, 1000);
 window.addEventListener("resize", () => { MESH.dirty = true; meshDraw(); });
 function demoMesh(D) {            // made-up packets for the sample data
@@ -1792,7 +1834,7 @@ function onLine(line) {
   if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); if (PET.seen) pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"contacts"') === 1) { onContactsLine(line); return; }
-  if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else { pcNote(o.ed === "orion"); onFrame(o); } } catch (e) { /* a half line: wait for the next */ } }
+  if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else if (o.ed === "dx-pro" && o.nova && typeof o.nova === "object") pcHello(o); else { pcNote(o.ed === "orion"); onFrame(o); } } catch (e) { /* a half line: wait for the next */ } }
   else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else if (!pcReply(t)) cmdLog(t); }
 }
 
@@ -2460,7 +2502,7 @@ async function connect(known) {
   let tick = 0;
   // keep asking for the analyzer: a radio that was still starting up ignores the first requests, so never give up (just ask less often when nothing answers)
   S.lastRx = Date.now(); let quiet = false;
-  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if (MESH.seen || tick <= 3 || tick % 5 === 0) send("nova mesh"); if (PET.ask) petAsk(); };
+  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if ((MESH.seen || tick <= 3 || tick % 5 === 0) && !(PC.dx && !pcCap("mesh"))) send("nova mesh"); if (PET.ask) petAsk(); };
   S.hello(); S.keep = setInterval(S.hello, 3000);
   let buf = "";
   try {
@@ -2571,7 +2613,7 @@ function demoCommand(line) {
 /* ------------------------------------------------------------------ stale check, save, theme, wiring */
 setInterval(() => {
   if (S.mode === "serial") {
-    if (!S.frame) setStatus("waiting", "Connected, waiting for data");
+    if (!S.frame && !S.dxpro) setStatus("waiting", "Connected, waiting for data");
     else if (performance.now() - S.lastAt > 7000) setStatus("stale", "No data for " + Math.round((performance.now() - S.lastAt) / 1000) + " s. Is this the Bluetooth firmware?");
     else setStatus("live", "Live");
   }
