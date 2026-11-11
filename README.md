@@ -98,6 +98,8 @@ The OLED has room for five short lines. The dashboard is a web page that shows e
 
 No radio yet? Click **Try sample data** to see the page with made-up numbers.
 
+**Pet controls (ORION + Pet firmware).** The *Your pet* panel stays as it was until the radio answers the page's `nova hello`. Then three groups appear under the pet: *Pet actions* (Clean the tank, Feed, Play the guess game with Higher / Lower), *Mesh* (Refresh contacts, then Ping or Send pet next to each contact the radio lists) and *Radio controls* (arrow keys, Back, Enter (hold for a long press) and Clean tank). Each button sends one line (`nova clean`, `nova feed`, `nova guess new|higher|lower`, `nova contacts`, `nova ping <id>`, `nova sendpet <id>`, `nova key up|down|left|right|enter|back|hold-enter`) and shows the radio's one-line answer in the command log. The radio side of these commands is firmware work still to come; until the firmware knows a command, the radio's own reply is shown. Test: `node nova/test/test_dashboard_pet.js`.
+
 **Privacy.** The radio only sends dashboard data while the page is connected and asking for it. The data includes your GPS position, and it travels only over the USB cable to your computer. The page does not send your data anywhere; its only request to the internet is for the typeface from Google Fonts, and it falls back to your system font without it.
 
 You can also type commands into any serial terminal (115200 baud) on the Bluetooth build: `nova status`, `nova profile hike|car|desk`, `nova quiet 22-7`, `nova quiet off`, `nova trip reset`, `nova defaults`. Replies start with `#`.
