@@ -26,7 +26,7 @@ ok(/PC\.reset\(\); pcSync\(\);/.test(html.slice(html.indexOf("async function dis
 
 // ---- 2. run the block against a fake page ----
 function makeEl(id) {
-  return { id, hidden: id === "pcBox" || id === "pcGuessRow" || id === "petNameBox" || id === "meshPanel", textContent: "", className: "", children: [], handlers: {}, attrs: {},
+  return { id, disabled: id === "petNameIn" || id === "petNameSet", value: "", dataset: {}, hidden: id === "pcBox" || id === "pcGuessRow" || id === "petNameBox" || id === "meshPanel", textContent: "", className: "", children: [], handlers: {}, attrs: {},
     addEventListener(t, f) { (this.handlers[t] = this.handlers[t] || []).push(f); },
     fire(t, ev) { (this.handlers[t] || []).forEach((f) => f(ev || {})); },
     appendChild(c) { this.children.push(c); return c; }, replaceChildren() { this.children = []; },
@@ -211,6 +211,26 @@ fresh(); feed("# OK"); ok(!vis("pcBox"), "a bare OK alone still shows nothing");
 // reset (connect / disconnect) hides everything again
 fresh(); feed(HELLO); ok(vis("pcBox"), "shown"); run("PC.reset(); pcSync()"); ALL.forEach((id) => ok(!vis(id), id + " hidden after reset")); ok(ctx.S.dxpro === false, "S.dxpro cleared by reset");
 ctx.S.mode = "demo"; run("pcSync()"); ok(vis("petNameBox"), "sample-data mode keeps the pet name box as before"); ctx.S.mode = "serial";
+
+// pet name box: enabled by caps.petname alone (no pet picture drawn yet), and it sends the exact line
+{
+  const pn = html.indexOf("function petNameSend() {"), pe = html.indexOf('$("petGrid")', pn);
+  ok(pn > 0 && pe > pn, "petNameSend found");
+  vm.runInContext(html.slice(pn, pe), ctx);   // the page's own petNameSend and its click / Enter wiring
+  const off = () => { ctx.$("petNameIn").disabled = true; ctx.$("petNameSet").disabled = true; };
+  fresh(); off(); ok(ctx.$("petNameIn").disabled && ctx.$("petNameSet").disabled, "name box disabled before any hello");
+  feed(hello({ pet: 1, contacts: 1, petname: 1 }));
+  ok(vis("petNameBox") && ctx.$("petNameIn").disabled === false && ctx.$("petNameSet").disabled === false, "petname:1 and no pet frame yet: input and Set name are enabled");
+  fresh(); off(); feed(hello({ pet: 1, contacts: 1, petname: 0 }));
+  ok(!vis("petNameBox") && ctx.$("petNameIn").disabled === true && ctx.$("petNameSet").disabled === true, "petname:0: input and Set name stay disabled");
+  fresh(); off(); feed(hello({ pet: 1 })); ok(ctx.$("petNameIn").disabled && ctx.$("petNameSet").disabled, "petname missing: stays disabled");
+  fresh(); off(); feed(hello({ petname: 1 })); sent.length = 0;
+  ctx.$("petNameIn").value = "Rex"; click("petNameSet"); eq(sent, ["nova petname Rex"], "Set name sends the exact line");
+  sent.length = 0; ctx.$("petNameIn").value = "  <b>Bo</b>!  "; click("petNameSet"); eq(sent, ["nova petname bBob!"], "the name is sanitised and cut to 7 characters");
+  sent.length = 0; ctx.$("petNameIn").value = ""; click("petNameSet"); eq(sent, ["nova petname -"], "an empty name clears with a dash");
+  sent.length = 0; ctx.$("petNameIn").value = "Max"; ctx.$("petNameIn").fire("keydown", { key: "Enter" }); ctx.$("petNameIn").fire("keydown", { key: "a" }); eq(sent, ["nova petname Max"], "Enter in the box sends, other keys do not");
+  fresh(); off(); feed(hello({ pet: 1 })); sent.length = 0; ctx.$("petNameIn").value = "Rex"; click("petNameSet"); eq(sent, [], "petname:0 sends nothing even if clicked");
+}
 
 // status line and keep-alive: static checks on the page's own wiring
 ok(/if \(!S\.frame && !S\.dxpro\) setStatus\("waiting"/.test(html), "static: a DX-Pro hello stops the 'waiting for data' status");

@@ -1536,6 +1536,7 @@ function pcSync() {                    // show or hide the whole block, and each
   const sig = (on("ping") ? "p" : "") + (on("sendpet") ? "s" : "");
   if (sig !== PC.sig) { PC.sig = sig; if (PC.list) pcShowContacts(PC.list); }     // Ping / Send pet buttons follow their own capability
   set("petNameBox", S.mode === "demo" ? true : on("petname"));
+  if (on("petname")) { const ni = $("petNameIn"), ns = $("petNameSet"); if (ni) ni.disabled = false; if (ns) ns.disabled = false; }   // the box works as soon as the hello says petname, not only after a pet picture has been drawn
   if (PC.dx) {                                                     // a DX-Pro radio decides which panels exist
     set("petPanel", pcCap("pet")); set("btnPet", pcCap("pet"));
     if (!pcCap("mesh")) set("meshPanel", false);                   // (the mesh panel opens itself when mesh data arrives, but only if the capability is on)
