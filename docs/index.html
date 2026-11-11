@@ -864,6 +864,17 @@ select { font: 500 14px var(--font); padding: 6px 8px; border: 1px solid var(--l
 .petstate { margin: 0 0 10px; color: var(--ink2); }
 .petstate.bad { color: var(--bad); }
 .petbar .cap.stale { color: var(--muted); font-weight: 400; }
+/* pet actions, mesh contacts and radio keys: the whole block stays hidden until the radio has answered "nova hello" */
+.pc { margin-top: 14px; display: grid; gap: 14px; }
+.pc[hidden], .pc [hidden] { display: none !important; }
+.pc h3 { margin: 0 0 6px; font-size: 13px; color: var(--ink2); font-weight: 600; }
+.pcrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pckeys { display: grid; grid-template-columns: repeat(3, auto); gap: 6px; justify-content: start; }
+.pclist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.pclist li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pclist .nm { flex: 1 1 160px; font-weight: 600; overflow-wrap: anywhere; }
+.pclist .id { color: var(--muted); font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.pc .log { margin-top: 6px; }
 /* ---- mesh analyzer ---- */
 #meshPanel { margin-bottom: 12px; }
 .mtiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 4px 0 10px; }
@@ -1082,6 +1093,39 @@ html.otr #stdBtn, html.otr #tacBtn, html.otr #viewBar { display: none !important
       <input id="petNameIn" type="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="up to 7 characters" disabled>
       <button id="petNameSet" disabled>Set name</button>
       <span class="note" id="petNameNote">It shows at the top of the radio's screen and here. Leave it empty and press Set to clear it. Names the pet on the screen right now.</span>
+    </div>
+    <div class="pc" id="pcBox" hidden>
+      <div class="pcgrp" id="pcPet">
+        <h3>Pet actions</h3>
+        <div class="pcrow">
+          <button id="pcClean">Clean the tank</button>
+          <button id="pcFeed">Feed</button>
+          <button id="pcGuessPlay">Play the guess game</button>
+        </div>
+        <div class="pcrow" id="pcGuessRow" hidden>
+          <span class="note">Is the next number higher or lower?</span>
+          <button id="pcGuessHi">Higher</button>
+          <button id="pcGuessLo">Lower</button>
+        </div>
+        <p class="log" id="pcPetLog" role="status"></p>
+        <p class="log" id="pcGuessLog" role="status"></p>
+      </div>
+      <div class="pcgrp" id="pcMesh">
+        <h3>Mesh</h3>
+        <div class="pcrow"><button id="pcRefresh">Refresh contacts</button><span class="note" id="pcMeshNote"></span></div>
+        <ul class="pclist" id="pcContacts" aria-label="Contacts the radio can reach"></ul>
+        <p class="log" id="pcMeshLog" role="status"></p>
+      </div>
+      <div class="pcgrp" id="pcKeys">
+        <h3>Radio controls <span class="note">the radio's own buttons, from this page</span></h3>
+        <div class="pckeys">
+          <span></span><button id="pcKeyUp" aria-label="Up">&uarr;</button><span></span>
+          <button id="pcKeyLeft" aria-label="Left">&larr;</button><button id="pcKeyEnter" title="Press for Enter, hold for a long press">Enter (hold)</button><button id="pcKeyRight" aria-label="Right">&rarr;</button>
+          <button id="pcKeyBack">Back</button><button id="pcKeyDown" aria-label="Down">&darr;</button><span></span>
+        </div>
+        <div class="pcrow" style="margin-top:8px"><button id="pcKeyClean">Clean tank</button></div>
+        <p class="log" id="pcKeyLog" role="status"></p>
+      </div>
     </div>
   </section>
 
@@ -1457,6 +1501,90 @@ $("petNameSet").addEventListener("click", petNameSend);
 $("petNameIn").addEventListener("keydown", (e) => { if (e.key === "Enter") petNameSend(); });
 $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid").setAttribute("aria-pressed", PET.grid); petDraw(); });
 
+/*PETCTL-START*/
+/* ---- pet actions, mesh contacts and radio keys. All of it stays hidden until the radio has answered "nova hello" and is an Orion radio.
+   Everything sent is one fixed line; everything the radio sends back is shown as plain text only (textContent, never HTML). ---- */
+const PC = {
+  ok: false, orion: false, pend: null, sticky: 0, holdMs: 700, holdTimer: null,
+  reset() { this.ok = false; this.orion = false; this.pend = null; this.sticky = 0; clearTimeout(this.holdTimer); this.holdTimer = null; },
+};
+const PC_FIXED = ["nova clean", "nova feed", "nova guess higher", "nova guess lower", "nova guess new", "nova contacts",
+  "nova key up", "nova key down", "nova key left", "nova key right", "nova key enter", "nova key back", "nova key hold-enter"];
+const PC_TARGET = /^nova (ping|sendpet) [0-9a-f]{12}$/;
+const pcReady = () => S.mode === "serial" && PC.ok && PC.orion;
+function pcSync() {                    // show or hide the whole block
+  const b = $("pcBox"); if (!b) return;
+  const show = pcReady();
+  if (b.hidden === show) b.hidden = !show;
+  if (!show) { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
+}
+function pcNote(orion) { PC.ok = true; if (orion) PC.orion = true; pcSync(); }   // the radio answered: a frame, a mesh or pet line, or the bare "OK"
+function pcSend(cmd, logId) {
+  if (!pcReady()) return false;
+  if (PC_FIXED.indexOf(cmd) < 0 && !PC_TARGET.test(cmd)) return false;          // only the lines this page knows, plus ping/sendpet to a 12-hex id
+  PC.pend = { log: logId, until: Date.now() + 8000 };
+  const e = $(logId); if (e) e.textContent = "Sent: " + cmd;
+  send(cmd); return true;
+}
+function pcReply(t) {                  // every "# ..." line from the radio; true means "leave the command log alone"
+  if (t === "OK") { pcNote(false); return Date.now() < PC.sticky; }              // bare OK is only the keep-alive's answer to "nova hello"
+  const p = PC.pend;
+  if (p && Date.now() < p.until) { PC.pend = null; PC.sticky = Date.now() + 10000; const e = $(p.log); if (e) e.textContent = t; }
+  return false;
+}
+function pcParseContacts(line) {       // {"contacts":[{"n":"name","id":"12hexchars"}, ...]}, at most 16; null if it is not that
+  let o; try { o = JSON.parse(line); } catch (e) { return null; }
+  if (!o || !Array.isArray(o.contacts)) return null;
+  const out = [];
+  for (const c of o.contacts) {
+    if (out.length >= 16) break;
+    if (!c || typeof c.id !== "string" || !/^[0-9a-fA-F]{12}$/.test(c.id)) continue;   // the id goes into a command, so it must be 12 hex characters
+    out.push({ n: String(c.n == null ? "" : c.n).replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 32), id: c.id.toLowerCase() });
+  }
+  return out;
+}
+function pcShowContacts(list) {
+  const ul = $("pcContacts"); ul.replaceChildren();
+  list.forEach((c) => {
+    const li = document.createElement("li"), nm = document.createElement("span"), id = document.createElement("span");
+    nm.className = "nm"; nm.textContent = c.n || "(no name)"; id.className = "id"; id.textContent = c.id;
+    const ping = document.createElement("button"), pet = document.createElement("button");
+    ping.textContent = "Ping"; pet.textContent = "Send pet";
+    ping.setAttribute("aria-label", "Ping " + (c.n || c.id)); pet.setAttribute("aria-label", "Send pet to " + (c.n || c.id));
+    ping.addEventListener("click", () => pcSend("nova ping " + c.id, "pcMeshLog"));
+    pet.addEventListener("click", () => pcSend("nova sendpet " + c.id, "pcMeshLog"));
+    li.appendChild(nm); li.appendChild(id); li.appendChild(ping); li.appendChild(pet); ul.appendChild(li);
+  });
+  $("pcMeshNote").textContent = list.length ? list.length + (list.length === 1 ? " contact" : " contacts") : "No contact the radio can reach yet.";
+}
+function onContactsLine(line) {
+  const list = pcParseContacts(line); if (!list) return;
+  pcShowContacts(list);
+  const p = PC.pend; if (p && p.log === "pcMeshLog") PC.pend = null;
+  const msg = "contacts: " + list.length + (list.length === 1 ? " contact" : " contacts") + " from the radio";
+  $("pcMeshLog").textContent = msg; cmdLog(msg); PC.sticky = Date.now() + 10000;
+}
+function pcEnterDown() { clearTimeout(PC.holdTimer); PC.holdTimer = setTimeout(() => { PC.holdTimer = null; pcSend("nova key hold-enter", "pcKeyLog"); }, PC.holdMs); }
+function pcEnterUp() { if (!PC.holdTimer) return; clearTimeout(PC.holdTimer); PC.holdTimer = null; pcSend("nova key enter", "pcKeyLog"); }   // let go before the timer: a short press
+function pcEnterCancel() { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
+const PC_BTNS = { pcClean: ["nova clean", "pcPetLog"], pcFeed: ["nova feed", "pcPetLog"], pcGuessHi: ["nova guess higher", "pcGuessLog"], pcGuessLo: ["nova guess lower", "pcGuessLog"],
+  pcRefresh: ["nova contacts", "pcMeshLog"], pcKeyUp: ["nova key up", "pcKeyLog"], pcKeyDown: ["nova key down", "pcKeyLog"], pcKeyLeft: ["nova key left", "pcKeyLog"],
+  pcKeyRight: ["nova key right", "pcKeyLog"], pcKeyBack: ["nova key back", "pcKeyLog"], pcKeyClean: ["nova clean", "pcKeyLog"] };
+Object.keys(PC_BTNS).forEach((id) => { const b = $(id); if (b) b.addEventListener("click", () => pcSend(PC_BTNS[id][0], PC_BTNS[id][1])); });
+$("pcGuessPlay").addEventListener("click", () => { $("pcGuessRow").hidden = false; pcSend("nova guess new", "pcGuessLog"); });
+(() => {
+  const b = $("pcKeyEnter");
+  b.addEventListener("pointerdown", (e) => { if (e.button) return; pcEnterDown(); });
+  b.addEventListener("pointerup", pcEnterUp);
+  b.addEventListener("pointerleave", pcEnterCancel);
+  b.addEventListener("pointercancel", pcEnterCancel);
+  b.addEventListener("contextmenu", (e) => e.preventDefault());
+  b.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); if (!e.repeat) pcEnterDown(); });
+  b.addEventListener("keyup", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); pcEnterUp(); });
+})();
+setInterval(pcSync, 1000);
+/*PETCTL-END*/
+
 /* ------------------------------------------------------------------ mesh analyzer */
 const MTYPE = ["Request", "Response", "Direct message", "Ack", "Advert", "Channel message", "Channel data", "Anon request", "Path", "Trace", "Multipart", "Control", "?", "?", "?", "Raw"];
 const MCOL = { 4: "--s3", 2: "--s1", 5: "--s2", 3: "--s4", 0: "--s5", 1: "--s5", 8: "--s5" };
@@ -1661,10 +1789,11 @@ function demoMesh(D) {            // made-up packets for the sample data
 
 function onLine(line) {
   line = line.trim();
-  if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); return; }
-  if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); return; }
-  if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else onFrame(o); } catch (e) { /* a half line: wait for the next */ } }
-  else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else cmdLog(t); }
+  if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); pcNote(true); return; }
+  if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); if (PET.seen) pcNote(true); return; }
+  if (line[0] === "{" && line.indexOf('"contacts"') === 1) { onContactsLine(line); return; }
+  if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else { pcNote(o.ed === "orion"); onFrame(o); } } catch (e) { /* a half line: wait for the next */ } }
+  else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else if (!pcReply(t)) cmdLog(t); }
 }
 
 /* ------------------------------------------------------------------ rendering */
@@ -2327,7 +2456,7 @@ async function connect(known) {
   const enc = new TextEncoderStream(); S.wpipe = enc.readable.pipeTo(S.port.writable, { preventClose: true, preventAbort: true, preventCancel: true }).catch(() => {}); S.writer = enc.writable.getWriter();
   const dec = new TextDecoderStream(); S.rpipe = S.port.readable.pipeTo(dec.writable, { preventClose: true, preventAbort: true, preventCancel: true }).catch(() => {}); S.reader = dec.readable.getReader();
   MESH.asks = 0; MESH.seen = 0;
-  PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet…");
+  PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet…"); PC.reset(); pcSync();
   let tick = 0;
   // keep asking for the analyzer: a radio that was still starting up ignores the first requests, so never give up (just ask less often when nothing answers)
   S.lastRx = Date.now(); let quiet = false;
@@ -2356,7 +2485,7 @@ async function disconnect(lost) {
   // Closing the port drops DTR/RTS, which restarts the radio. A manual Disconnect therefore only lets go of the streams and leaves the port open; Connect picks it up again.
   if (port && !lost && port.readable && port.writable) S.kept = port;
   else if (port) { S.kept = null; try { await port.close(); } catch (e) {} }
-  PET.ask = false; PET.asks = 0; PET.nosupport = false; PET.seen = 0; petState("Connect your radio to see your pet here.");
+  PET.ask = false; PET.asks = 0; PET.nosupport = false; PET.seen = 0; petState("Connect your radio to see your pet here."); PC.reset(); pcSync();
   $("btnConnect").textContent = "Connect radio";
   setStatus("off", lost ? "Radio unplugged, restarting or closed" : "Not connected");
 }
