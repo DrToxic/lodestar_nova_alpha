@@ -60,6 +60,8 @@ body {
 .wrap { max-width: 1240px; margin: 0 auto; padding: 0 16px 48px; }
 
 /* ---- top bar ---- */
+.baud { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-weight: 600; }
+.baud[hidden] { display: none !important; }
 header.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 18px 0 14px; }
 .brand { font: 700 26px/1 var(--font-d); letter-spacing: .01em; margin: 0; }
 .brand small { font: 500 14px var(--font); color: var(--muted); margin-left: 10px; letter-spacing: 0; }
@@ -1026,6 +1028,7 @@ html.otr #stdBtn, html.otr #tacBtn, html.otr #viewBar { display: none !important
     <span class="status" id="status" data-state="off" role="status"><span class="dot"></span><span id="statusText">Not connected</span></span>
     <span class="spacer"></span>
     <button id="btnConnect" class="primary">Connect radio</button>
+    <label class="baud" id="baudBox" hidden>Speed <select id="baudSel" aria-label="USB serial speed in baud"><option value="115200">115200</option><option value="230400">230400</option><option value="460800">460800</option><option value="921600">921600</option></select></label>
     <button id="btnDemo">Try sample data</button>
     <button id="btnSave" disabled>Save log</button>
     <button id="btnPet" aria-label="Go to the pet screen">Pet</button>
@@ -1423,46 +1426,105 @@ function onFrame(f, ts) {
 /*PET-BEGIN*/
 const PET = {
   ask: false, probe: 0, seen: 0, seq: -1, fb: new Uint8Array(1024), meta: null, last: 0, grid: false, lastSeq: 0,
-  decode(b64) {                       // base64 -> run-length bytes -> 1024 delta bytes
-    const bin = atob(b64), out = new Uint8Array(1024); let o = 0;
-    for (let i = 0; i < bin.length && o < 1024;) {
+  fmt: { w: 128, h: 64, bpp: 1, eink: false, rb: 16, bytes: 1024 }, pal: null,    // what the picture is: the original 128x64 one-colour screen until a key picture says otherwise
+  decode(b64, n) {                    // base64 -> run-length bytes -> n bytes (1024 for the 128x64 screen)
+    const bin = atob(b64), size = n || 1024, out = new Uint8Array(size); let o = 0;
+    for (let i = 0; i < bin.length && o < size;) {
       const c = bin.charCodeAt(i++);
       if (c) out[o++] = c; else { const run = bin.charCodeAt(i++) | 0; o += run; }
     }
     return out;
   },
+  unchain(t) { for (let i = 1; i < t.length; i++) t[i] ^= t[i - 1]; return t; },      // colour pictures: every byte was also XORed with the byte before it
+  // 16 RGB565 colours (2 bytes each, big endian) as 64 hex characters or base64 -> 16 css colours; null when it is neither
+  palette(s) {
+    if (typeof s !== "string") return null;
+    let b = [];
+    if (/^(?:[0-9a-fA-F]{4}){1,16}$/.test(s)) { for (let i = 0; i < s.length; i += 2) b.push(parseInt(s.substr(i, 2), 16)); }
+    else { if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(s)) return null; try { const bin = atob(s); for (let i = 0; i < bin.length; i++) b.push(bin.charCodeAt(i) & 255); } catch (e) { return null; } }
+    if (b.length < 2 || b.length % 2 || b.length > 32) return null;
+    const out = [];
+    for (let i = 0; i < 16; i++) {
+      const v = i * 2 + 1 < b.length ? (b[i * 2] << 8 | b[i * 2 + 1]) : 0, r = (v >> 11) & 31, g = (v >> 5) & 63, bl = v & 31;
+      out.push("rgb(" + (r << 3 | r >> 2) + "," + (g << 2 | g >> 4) + "," + (bl << 3 | bl >> 2) + ")");
+    }
+    return out;
+  },
+  // What a key picture says about the screen. No w/h = 128x64. "e":1 = e-ink (black on white, still). "c" an object {b:4,p:palette} = colour;
+  // "c" a number is the old pet count and means nothing here. null = the picture cannot be used (it is refused, the last one stays).
+  format(p) {
+    let w = 128, h = 64;
+    if (p.w !== undefined || p.h !== undefined) {
+      w = p.w === undefined ? 128 : p.w; h = p.h === undefined ? 64 : p.h;
+      if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > 512 || h > 512) return null;
+    }
+    const eink = p.e === 1 || p.e === true;
+    let bpp = 1, pal = null;
+    if (p.c && typeof p.c === "object" && !Array.isArray(p.c)) {
+      if (p.c.b !== 4) return null;
+      pal = this.palette(p.c.p); if (!pal) return null;
+      if (eink) pal = null; else bpp = 4;          // an e-ink screen is always black and white
+    }
+    const rb = bpp === 4 ? (w + 1) >> 1 : (w + 7) >> 3, bytes = rb * h;
+    if (bytes > 40000) return null;
+    return { w, h, bpp, eink, rb, bytes, pal };
+  },
   // returns true when a picture was updated
   apply(p) {
     if (!p || typeof p.d !== "string") return false;
     if (p.k) {
-      this.fb = this.decode(p.d); this.seq = p.s;
-      if (p.n) this.meta = { n: p.n, u: p.u || "", x: p.x, m: p.m, c: p.c, i: p.i };
+      const f = this.format(p); if (!f) { this.seq = -1; return false; }
+      const t = this.decode(p.d, f.bytes); if (f.bpp === 4) this.unchain(t);
+      this.fb = t; this.seq = p.s; this.fmt = f; this.pal = f.pal;
+      this.meta = { n: typeof p.n === "string" ? p.n : "", u: p.u || "", x: p.x, m: p.m, c: typeof p.c === "number" ? p.c : undefined, i: p.i };
     } else {
       if (this.seq < 0 || p.s !== this.seq + 1) { this.seq = -1; return false; }    // missed one: wait for the next key frame
-      const d = this.decode(p.d); for (let i = 0; i < 1024; i++) this.fb[i] ^= d[i];
+      const d = this.decode(p.d, this.fb.length); if (this.fmt.bpp === 4) this.unchain(d);
+      for (let i = 0; i < this.fb.length; i++) this.fb[i] ^= d[i];
       this.seq = p.s;
     }
     return true;
   },
-  reset() { this.seq = -1; this.seen = 0; this.meta = null; this.fb = new Uint8Array(1024); this.asks = 0; this.nosupport = false; },
+  reset() { this.seq = -1; this.seen = 0; this.meta = null; this.fb = new Uint8Array(1024); this.fmt = { w: 128, h: 64, bpp: 1, eink: false, rb: 16, bytes: 1024 }; this.pal = null; this.asks = 0; this.nosupport = false; },
 };
 /*PET-END*/
 const petCtx = () => $("petCanvas").getContext("2d");
 function petDraw() {
-  const c = $("petCanvas"), x = c.getContext("2d"), K = 8, g = PET.grid ? 1 : 0;
-  x.fillStyle = "#05080c"; x.fillRect(0, 0, c.width, c.height);
-  x.fillStyle = "#8fd4ff";
-  for (let y = 0; y < 64; y++) for (let b = 0; b < 16; b++) {
-    const v = PET.fb[y * 16 + b]; if (!v) continue;
-    for (let k = 0; k < 8; k++) if (v & (0x80 >> k)) x.fillRect((b * 8 + k) * K, y * K, K - g, K - g);
+  const c = $("petCanvas"), x = c.getContext("2d"), f = PET.fmt, K = 8, g = PET.grid ? 1 : 0;
+  if (f.w === 128 && f.h === 64 && f.bpp === 1 && !f.eink) {          // the original screen, drawn exactly as it always was
+    if (c.width !== 1024 || c.height !== 512) { c.width = 1024; c.height = 512; c.style.aspectRatio = ""; }
+    x.fillStyle = "#05080c"; x.fillRect(0, 0, c.width, c.height);
+    x.fillStyle = "#8fd4ff";
+    for (let y = 0; y < 64; y++) for (let b = 0; b < 16; b++) {
+      const v = PET.fb[y * 16 + b]; if (!v) continue;
+      for (let k = 0; k < 8; k++) if (v & (0x80 >> k)) x.fillRect((b * 8 + k) * K, y * K, K - g, K - g);
+    }
+    return;
+  }
+  // any other screen: the canvas takes the screen's shape, each pixel is drawn k times as big
+  const k = Math.max(1, Math.floor(1024 / f.w)), W = f.w * k, H = f.h * k, colour = f.bpp === 4;
+  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  c.style.aspectRatio = f.w + " / " + f.h;
+  const cols = colour ? PET.pal : (f.eink ? ["#ffffff", "#000000"] : ["#05080c", "#8fd4ff"]);
+  x.fillStyle = cols[0]; x.fillRect(0, 0, W, H);                       // index 0 is the screen's background
+  const at = colour ? (X, Y) => { const v = PET.fb[Y * f.rb + (X >> 1)]; return X & 1 ? v & 15 : v >> 4; }
+                    : (X, Y) => (PET.fb[Y * f.rb + (X >> 3)] >> (7 - (X & 7))) & 1;
+  for (let Y = 0; Y < f.h; Y++) for (let X = 0; X < f.w;) {
+    const v = at(X, Y); if (!v) { X++; continue; }
+    let e = X + 1; if (!g) while (e < f.w && at(e, Y) === v) e++;       // a run of one colour is one rectangle
+    x.fillStyle = cols[v]; x.fillRect(X * k, Y * k, (e - X) * k - g, k - g); X = e;
   }
 }
 function petCaption() {
   const m = PET.meta, el = $("petCap"); if (!m) return;
   const kind = m.n.charAt(0).toUpperCase() + m.n.slice(1);
-  const name = m.u ? m.u + " the " + kind.toLowerCase() : kind;
-  const age = m.m < 24 ? m.m + " months old" : (m.m % 12 ? Math.floor(m.m / 12) + " yr " + (m.m % 12) + " mo" : (m.m / 12) + " years old");
-  el.textContent = name + " \u00b7 " + (m.x ? "female" : "male") + " \u00b7 " + age + (m.c > 1 ? " \u00b7 pet " + m.i + " of " + m.c : "");
+  const name = m.n ? (m.u ? m.u + " the " + kind.toLowerCase() : kind) : (m.u || "Your pet");
+  const parts = [name];
+  if (m.x != null) parts.push(m.x ? "female" : "male");
+  if (m.m != null) parts.push(m.m < 24 ? m.m + " months old" : (m.m % 12 ? Math.floor(m.m / 12) + " yr " + (m.m % 12) + " mo" : (m.m / 12) + " years old"));
+  if (m.c > 1) parts.push("pet " + m.i + " of " + m.c);
+  const f = PET.fmt; if (!(f.w === 128 && f.h === 64 && f.bpp === 1 && !f.eink)) parts.push(f.w + "\u00d7" + f.h + (f.eink ? " e-ink" : f.bpp === 4 ? " colour" : ""));
+  el.textContent = parts.join(" \u00b7 ");
   el.classList.remove("stale");
   const inp = $("petNameIn");
   if (inp.disabled) { inp.disabled = false; $("petNameSet").disabled = false; }
@@ -1488,7 +1550,7 @@ function onPetLine(line) {
   petDraw(); petCaption();
 }
 setInterval(() => {                    // say so when the pictures stop coming
-  if (PET.seen && Date.now() - PET.last > 4000 && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
+  if (PET.seen && Date.now() - PET.last > (PET.fmt.eink ? 30000 : 4000) && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
 }, 2000);
 $("btnPet").addEventListener("click", () => { $("petPanel").scrollIntoView({ behavior: "smooth", block: "start" }); $("petFull").focus({ preventScroll: true }); });
 $("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
@@ -1508,16 +1570,17 @@ $("petGrid").addEventListener("click", () => { PET.grid = !PET.grid; $("petGrid"
    Everything sent is one fixed line; everything the radio sends back is shown as plain text only (textContent, never HTML). ---- */
 const PC = {
   ok: false, orion: false, dx: false, caps: null, list: null, sig: "", pend: null, sticky: 0, holdMs: 700, holdTimer: null,
-  reset() { this.ok = false; this.orion = false; this.dx = false; this.caps = null; this.list = null; this.sig = ""; this.pend = null; this.sticky = 0; if (typeof S !== "undefined") S.dxpro = false; clearTimeout(this.holdTimer); this.holdTimer = null; },
+  reset() { this.ok = false; this.orion = false; this.dx = false; this.caps = null; this.list = null; this.sig = ""; this.pend = null; this.sticky = 0; if (typeof S !== "undefined") S.dxpro = false; clearTimeout(this.holdTimer); this.holdTimer = null; clearTimeout(this.baudTimer); this.baudTimer = null; this.baudPend = 0; },
 };
 const PC_FIXED = ["nova clean", "nova feed", "nova guess higher", "nova guess lower", "nova guess new", "nova contacts",
   "nova key up", "nova key down", "nova key left", "nova key right", "nova key enter", "nova key back", "nova key hold-enter"];
 const PC_TARGET = /^nova (ping|sendpet) [0-9a-f]{12}$/;
 /* What a LoRagotchi DX-Pro radio must answer to "nova hello" (one line, and nothing is shown until it arrives):
    {"ed":"dx-pro","nova":{"v":1,"caps":{"pet":1,"mesh":0,"contacts":1,"petname":1,"keys":0,"clean":0,"feed":0,"guess":0,"ping":0,"sendpet":0}}}
+   (A radio that can change its USB speed adds "baud":1; the speed list then shows next to Connect.)
    Every control is shown only when its capability is a number above 0 (or true). A missing, unknown or non-number capability means hidden; unknown keys are ignored.
    A LODESTAR ORION radio (ed "orion") keeps the old behaviour: all controls once it has answered. */
-const PC_CAPS = ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet"];
+const PC_CAPS = ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet", "baud"];
 const PC_CMDCAP = { "nova clean": "clean", "nova feed": "feed", "nova guess higher": "guess", "nova guess lower": "guess", "nova guess new": "guess", "nova contacts": "contacts",
   "nova key up": "keys", "nova key down": "keys", "nova key left": "keys", "nova key right": "keys", "nova key enter": "keys", "nova key back": "keys", "nova key hold-enter": "keys" };
 const pcReady = () => S.mode === "serial" && PC.ok && (PC.orion || PC.dx);
@@ -1541,6 +1604,8 @@ function pcSync() {                    // show or hide the whole block, and each
     set("petPanel", pcCap("pet")); set("btnPet", pcCap("pet"));
     if (!pcCap("mesh")) set("meshPanel", false);                   // (the mesh panel opens itself when mesh data arrives, but only if the capability is on)
   }
+  const bb = $("baudBox"); if (bb) { const on = pcBaudOn(); if (bb.hidden === on) bb.hidden = !on; }       // the speed list: only a DX-Pro radio whose hello lists "baud"
+  const bs = $("baudSel"); if (bs) { bs.disabled = !!PC.baudPend; if (!PC.baudPend) bs.value = String(S.baud || 115200); }
   if (!ready) { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
 }
 function pcNote(orion) { PC.ok = true; if (orion && !PC.dx) PC.orion = true; pcSync(); }   // the radio answered: a frame, a mesh or pet line, or the bare "OK". A DX-Pro radio is never promoted to Orion by it.
@@ -1561,7 +1626,8 @@ function pcHello(o) {                  // true when o is a known DX-Pro hello; a
 }
 function pcSend(cmd, logId) {
   if (!pcReady()) return false;
-  if (PC_FIXED.indexOf(cmd) < 0 && !PC_TARGET.test(cmd)) return false;          // only the lines this page knows, plus ping/sendpet to a 12-hex id
+  if (PC_FIXED.indexOf(cmd) < 0 && !PC_TARGET.test(cmd) && !PC_BAUDLINE.test(cmd)) return false;          // only the lines this page knows, plus ping/sendpet to a 12-hex id
+  if (PC_BAUDLINE.test(cmd)) { if (!pcBaudOn()) return false; send(cmd); return true; }       // the speed change has its own answer line, see onNovaReply
   const cap = PC_CMDCAP[cmd] || (PC_TARGET.test(cmd) ? cmd.split(" ")[1] : ""); if (!cap || !pcCap(cap)) return false;   // and only if the radio said it can do it
   PC.pend = { log: logId, until: Date.now() + 8000 };
   const e = $(logId); if (e) e.textContent = "Sent: " + cmd;
@@ -1625,6 +1691,49 @@ $("pcGuessPlay").addEventListener("click", () => { $("pcGuessRow").hidden = fals
   b.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); if (!e.repeat) pcEnterDown(); });
   b.addEventListener("keyup", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); pcEnterUp(); });
 })();
+/* ---- USB serial speed. Only a DX-Pro radio whose hello lists "baud" gets the speed list. Picking a speed sends "nova baud N"; the radio answers
+   {"nova_ok":"baud","rate":N} (then the page closes the port and opens it again at N) or {"nova_error":"baud_unsupported"} (nothing changes). ---- */
+const PC_BAUDS = [115200, 230400, 460800, 921600];
+const PC_BAUDLINE = /^nova baud (115200|230400|460800|921600)$/;
+const pcBaudOn = () => pcReady() && PC.dx && !!(PC.caps && PC.caps.baud === true);
+function pcBaudDone(msg) {            // the change is over (answered, refused or not answered): the list goes back to the speed really in use
+  clearTimeout(PC.baudTimer); PC.baudTimer = null; PC.baudPend = 0;
+  const bs = $("baudSel"); if (bs) { bs.disabled = false; bs.value = String(S.baud || 115200); }
+  if (msg) cmdLog(msg);
+}
+function pcBaudChange() {             // the person picked a speed
+  const bs = $("baudSel"), rate = Number(bs.value), cur = S.baud || 115200;
+  if (PC.baudPend || PC_BAUDS.indexOf(rate) < 0 || rate === cur || !pcSend("nova baud " + rate, "")) { bs.value = String(PC.baudPend || cur); return; }
+  PC.baudPend = rate; bs.disabled = true;
+  cmdLog("Asking the radio to switch the USB link to " + rate + " baud\u2026");
+  clearTimeout(PC.baudTimer); PC.baudTimer = setTimeout(() => { if (PC.baudPend) pcBaudDone("The radio did not answer the speed change, so the link stays at " + (S.baud || 115200) + " baud."); }, 6000);
+}
+// one line starting {"nova_ok" or {"nova_error"; only the speed answers matter here, anything else is ignored (as it always was)
+function onNovaReply(line) {
+  let o; try { o = JSON.parse(line); } catch (e) { return; }
+  if (!o || typeof o !== "object" || !PC.baudPend) return;           // nobody asked, so nothing to do
+  if (o.nova_ok === "baud") {
+    if (typeof o.rate !== "number" || PC_BAUDS.indexOf(o.rate) < 0) { pcBaudDone("The radio answered the speed change with a speed this page cannot use (" + String(o.rate).slice(0, 12) + "). The link stays at " + (S.baud || 115200) + " baud."); return; }
+    const rate = o.rate; pcBaudDone(""); pcBaudReopen(rate);
+  } else if (o.nova_error === "baud_unsupported") pcBaudDone("This radio cannot use " + PC.baudPend + " baud. The link stays at " + (S.baud || 115200) + " baud.");
+}
+// Web Serial cannot change the speed of an open port, so: release DTR/RTS in one step (the radio is not restarted by that), close, open again at the new speed.
+async function pcBaudReopen(rate) {
+  const port = S.port; if (!port || S.mode !== "serial" || S.reopening) return false;
+  S.reopening = true; S.baud = rate;
+  try {
+    cmdLog("Switching the USB link to " + rate + " baud\u2026"); termAdd("reopening the port at " + rate + " baud", "ev");
+    const done = new Promise((res) => { S.loopEnd = res; });
+    try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) { /* this browser cannot set them */ }
+    S.manual = true;                                                    // so the read loop's end is a planned one
+    await disconnect(true);                                             // lets go of the streams and closes the port
+    await Promise.race([done, new Promise((r) => setTimeout(r, 2000))]);
+    S.loopEnd = null;
+  } finally { S.reopening = false; }
+  connect(port);                                                        // opens at S.baud
+  return true;
+}
+$("baudSel").addEventListener("change", pcBaudChange);
 setInterval(pcSync, 1000); pcSync();
 /*PETCTL-END*/
 
@@ -1835,6 +1944,7 @@ function onLine(line) {
   if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); if (PET.seen) pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"contacts"') === 1) { onContactsLine(line); return; }
+  if (line[0] === "{" && (line.indexOf('"nova_ok"') === 1 || line.indexOf('"nova_error"') === 1)) { onNovaReply(line); return; }
   if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else if (o.ed === "dx-pro" && o.nova && typeof o.nova === "object") pcHello(o); else { pcNote(o.ed === "orion"); onFrame(o); } } catch (e) { /* a half line: wait for the next */ } }
   else if (line[0] === "#") { const t = line.slice(1).trim(); if (PET.ask && !PET.seen && /^nova \[status\|profile/.test(t)) PET.nosupport = true; else if (!pcReply(t)) cmdLog(t); }
 }
@@ -2478,7 +2588,7 @@ async function holdLines(p) { try { await p.setSignals({ dataTerminalReady: true
 async function openPort(port) {          // a radio that has just restarted takes a few seconds to show up again, so try more than once
   let err;
   for (let i = 0; i < 6; i++) {
-    try { await port.open({ baudRate: 115200 }); await holdLines(port); return; }   // leave the control lines as the system sets them: many boards stay silent unless DTR is on
+    try { await port.open({ baudRate: S.baud || 115200 }); await holdLines(port); return; }   // leave the control lines as the system sets them: many boards stay silent unless DTR is on
     catch (e) { err = e; if (e.name === "InvalidStateError") { try { await port.close(); } catch (e2) { /* was not open */ } } await new Promise((r) => setTimeout(r, 1200)); }
   }
   throw err;
@@ -2503,7 +2613,7 @@ async function connect(known) {
   let tick = 0;
   // keep asking for the analyzer: a radio that was still starting up ignores the first requests, so never give up (just ask less often when nothing answers)
   S.lastRx = Date.now(); let quiet = false;
-  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if ((MESH.seen || tick <= 3 || tick % 5 === 0) && !(PC.dx && !pcCap("mesh"))) send("nova mesh"); if (PET.ask) petAsk(); };
+  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; if (S.baud && S.baud !== 115200) { S.baud = 115200; termAdd("no answer at the chosen speed: the next connect uses 115200 baud", "ev"); } termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if ((MESH.seen || tick <= 3 || tick % 5 === 0) && !(PC.dx && !pcCap("mesh"))) send("nova mesh"); if (PET.ask) petAsk(); };
   S.hello(); S.keep = setInterval(S.hello, 3000);
   let buf = "";
   try {
@@ -2515,6 +2625,7 @@ async function connect(known) {
     }
   } catch (e) { /* unplugged */ }
   await disconnect(!S.manual);
+  if (S.loopEnd) { const f = S.loopEnd; S.loopEnd = null; f(); }       // a speed change waits for this
 }
 async function disconnect(lost) {
   clearInterval(S.keep); S.keep = null; S.hello = null;

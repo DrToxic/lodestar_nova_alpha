@@ -186,7 +186,7 @@ const asks = []; ctx.send = (l) => asks.push(l); run("petAsk()"); eq(asks, [], "
 fresh(); feed(hello({ pet: true, contacts: "1", keys: "yes", clean: null, feed: [1], guess: {}, mesh: -1, petname: 2, bogus: 1, __proto__: { keys: 1 }, ping: NaN }));
 ok(vis("petPanel"), "true counts"); ok(!vis("pcRefresh"), "the string \"1\" does not"); ok(!vis("pcKeys") && !vis("pcClean") && !vis("pcFeed") && !vis("pcGuessPlay"), "strings, null, arrays and objects do not");
 ok(!vis("meshPanel"), "-1 does not"); ok(vis("petNameBox"), "2 counts");
-eq(run("Object.keys(PC.caps)"), ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet"], "only the known capabilities are kept");
+eq(run("Object.keys(PC.caps)"), ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet", "baud"], "only the known capabilities are kept");
 // malformed hellos change nothing
 [JSON.stringify({ ed: "dx-pro", nova: { v: 1 } }), JSON.stringify({ ed: "dx-pro", nova: { v: "1", caps: { pet: 1 } } }), JSON.stringify({ ed: "dx-pro", nova: { v: 1, caps: [1] } }), JSON.stringify({ ed: "dx-pro", nova: 1 }), JSON.stringify({ ed: "dx-pro", nova: { v: 0, caps: { pet: 1 } } })].forEach((l, i) => {
   fresh(); feed(l); ok(ctx.S.dxpro === false && !vis("pcBox") && !vis("petNameBox"), "malformed hello #" + i + " is ignored");
