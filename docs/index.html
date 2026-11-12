@@ -1028,7 +1028,7 @@ html.otr #stdBtn, html.otr #tacBtn, html.otr #viewBar { display: none !important
     <span class="status" id="status" data-state="off" role="status"><span class="dot"></span><span id="statusText">Not connected</span></span>
     <span class="spacer"></span>
     <button id="btnConnect" class="primary">Connect radio</button>
-    <label class="baud" id="baudBox" hidden>Speed <select id="baudSel" aria-label="USB serial speed in baud"><option value="115200">115200</option><option value="230400">230400</option><option value="460800">460800</option><option value="921600">921600</option></select></label>
+    <label class="baud" id="baudBox">Speed <select id="baudSel" aria-label="USB serial speed in baud"><option value="115200">115200</option><option value="230400">230400</option><option value="460800">460800</option><option value="921600">921600</option></select></label>
     <button id="btnDemo">Try sample data</button>
     <button id="btnSave" disabled>Save log</button>
     <button id="btnPet" aria-label="Go to the pet screen">Pet</button>
@@ -1577,7 +1577,7 @@ const PC_FIXED = ["nova clean", "nova feed", "nova guess higher", "nova guess lo
 const PC_TARGET = /^nova (ping|sendpet) [0-9a-f]{12}$/;
 /* What a LoRagotchi DX-Pro radio must answer to "nova hello" (one line, and nothing is shown until it arrives):
    {"ed":"dx-pro","nova":{"v":1,"caps":{"pet":1,"mesh":0,"contacts":1,"petname":1,"keys":0,"clean":0,"feed":0,"guess":0,"ping":0,"sendpet":0}}}
-   (A radio that can change its USB speed adds "baud":1; the speed list then shows next to Connect.)
+   (A radio that can change its USB speed adds "baud":1. The speed list shows next to Connect before any hello, so any radio can be looked for at a chosen speed; after the hello it stays only for a radio with "baud".)
    Every control is shown only when its capability is a number above 0 (or true). A missing, unknown or non-number capability means hidden; unknown keys are ignored.
    A LODESTAR ORION radio (ed "orion") keeps the old behaviour: all controls once it has answered. */
 const PC_CAPS = ["pet", "mesh", "contacts", "petname", "keys", "clean", "feed", "guess", "ping", "sendpet", "baud"];
@@ -1604,8 +1604,8 @@ function pcSync() {                    // show or hide the whole block, and each
     set("petPanel", pcCap("pet")); set("btnPet", pcCap("pet"));
     if (!pcCap("mesh")) set("meshPanel", false);                   // (the mesh panel opens itself when mesh data arrives, but only if the capability is on)
   }
-  const bb = $("baudBox"); if (bb) { const on = pcBaudOn(); if (bb.hidden === on) bb.hidden = !on; }       // the speed list: only a DX-Pro radio whose hello lists "baud"
-  const bs = $("baudSel"); if (bs) { bs.disabled = !!PC.baudPend; if (!PC.baudPend) bs.value = String(S.baud || 115200); }
+  const bb = $("baudBox"); if (bb) { const on = pcBaudVisible(); if (bb.hidden === on) bb.hidden = !on; }       // the speed list: shown until a hello arrives, afterwards only for a DX-Pro radio whose hello lists "baud"
+  const bs = $("baudSel"); if (bs) { bs.disabled = !!PC.baudPend || !!PC.probe; if (!PC.baudPend) bs.value = String(S.baud || 115200); }   // locked while a speed change or the probe is under way
   if (!ready) { clearTimeout(PC.holdTimer); PC.holdTimer = null; }
 }
 function pcNote(orion) { PC.ok = true; if (orion && !PC.dx) PC.orion = true; pcSync(); }   // the radio answered: a frame, a mesh or pet line, or the bare "OK". A DX-Pro radio is never promoted to Orion by it.
@@ -1691,11 +1691,60 @@ $("pcGuessPlay").addEventListener("click", () => { $("pcGuessRow").hidden = fals
   b.addEventListener("keydown", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); if (!e.repeat) pcEnterDown(); });
   b.addEventListener("keyup", (e) => { if (e.key !== "Enter" && e.key !== " ") return; e.preventDefault(); pcEnterUp(); });
 })();
-/* ---- USB serial speed. Only a DX-Pro radio whose hello lists "baud" gets the speed list. Picking a speed sends "nova baud N"; the radio answers
-   {"nova_ok":"baud","rate":N} (then the page closes the port and opens it again at N) or {"nova_error":"baud_unsupported"} (nothing changes). ---- */
+/* ---- USB serial speed. The list has the four speeds of the radio's Options > Display > Serial speed menu and sits next to Connect.
+   Connect: a circular probe. It starts at the listed speed, sends "nova hello" at each speed (about 1 s each) and goes on with the other speeds in order, wrapping, for up to 3 passes.
+   A speed counts only when a complete line arrives that parses as JSON and has a "nova" key (garbled bytes never count). Nothing is ever changed on the radio by the probe.
+   Once connected, a radio whose hello lists "baud" can be told to change: picking a speed sends "nova baud N"; the radio answers {"nova_ok":"baud","rate":N}
+   (the page then closes the port: the radio uses N after its next restart, and the page looks for it again when it is back) or {"nova_error":"baud_unsupported"} (nothing changes). ---- */
 const PC_BAUDS = [115200, 230400, 460800, 921600];
 const PC_BAUDLINE = /^nova baud (115200|230400|460800|921600)$/;
-const pcBaudOn = () => pcReady() && PC.dx && !!(PC.caps && PC.caps.baud === true);
+const pcBaudOn = () => pcReady() && PC.dx && !!(PC.caps && PC.caps.baud === true);          // may "nova baud" be sent?
+const pcBaudVisible = () => !(PC.dx || PC.orion) || pcBaudOn();                                // the list shows before any hello; after it, only for a radio with "baud"
+const PC_PROBE_MS = 1000, PC_PROBE_PASSES = 3;
+const PC_NOREPLY = "No reply at any speed. Set the same speed in the radio's Options > Display > Serial speed, reboot the radio, then connect again.";
+function pcProbeSeq(start) {          // the speeds to try, in order: the listed one first, then the others, wrapping, three passes
+  const i = PC_BAUDS.indexOf(start), s = i < 0 ? 0 : i, out = [];
+  for (let p = 0; p < PC_PROBE_PASSES; p++) for (let k = 0; k < PC_BAUDS.length; k++) out.push(PC_BAUDS[(s + k) % PC_BAUDS.length]);
+  return out;
+}
+function pcProbeBegin() {             // a fresh Connect: S.baud becomes the speed in the list and the probe starts there (a probe already under way is left alone)
+  if (PC.probe) return PC.probe;
+  const sel = $("baudSel"); let start = Number(sel && sel.value);
+  if (PC_BAUDS.indexOf(start) < 0) start = PC_BAUDS.indexOf(S.baud) >= 0 ? S.baud : 115200;
+  S.baud = start; PC.probe = { seq: pcProbeSeq(start), i: 0, start: start, timer: null };
+  return PC.probe;
+}
+function pcProbeStop() { const p = PC.probe; if (p) clearTimeout(p.timer); PC.probe = null; }
+function pcProbeStart() {             // the port is open at the speed to try: ask once, then wait
+  const p = PC.probe; if (!p) return false;
+  clearTimeout(p.timer);
+  setStatus("waiting", "Looking for the radio at " + p.seq[p.i] + " baud (try " + (p.i + 1) + " of " + p.seq.length + ")\u2026");
+  send("nova hello");
+  p.timer = setTimeout(pcProbeStep, PC_PROBE_MS);
+  return true;
+}
+function pcProbeLine(line) {          // every line while probing: only a whole JSON line with a "nova" key ends it
+  const p = PC.probe; if (!p || line[0] !== "{") return false;
+  let o; try { o = JSON.parse(line); } catch (e) { return false; }
+  if (!o || typeof o !== "object" || Array.isArray(o) || !Object.prototype.hasOwnProperty.call(o, "nova")) return false;
+  clearTimeout(p.timer); PC.probe = null;
+  const rate = S.baud; const bs = $("baudSel"); if (bs) bs.value = String(rate);
+  termAdd("radio answered at " + rate + " baud", "ev"); notice(""); setStatus("waiting", "Connected, waiting for data");
+  if (S.startKeep) { const f = S.startKeep; S.startKeep = null; f(); }
+  return true;
+}
+async function pcProbeStep() {        // one second passed with no valid answer: next speed, or give up after the last
+  const p = PC.probe; if (!p) return;
+  p.timer = null;
+  if (p.i + 1 >= p.seq.length) { pcProbeFail(); return; }
+  p.i++; termAdd("no valid answer, trying " + p.seq[p.i] + " baud", "ev");
+  if (!(await pcBaudReopen(p.seq[p.i]))) pcProbeStop();
+}
+async function pcProbeFail() {        // nothing answered at any speed: close the link, say what to do. The radio is never changed.
+  const p = PC.probe; PC.probe = null; if (p) S.baud = p.start;
+  await pcCloseLink(); autoFlag(false); S.kept = null;
+  setStatus("off", "Not connected"); notice(PC_NOREPLY); cmdLog(PC_NOREPLY); termAdd("no reply at any speed", "ev");
+}
 function pcBaudDone(msg) {            // the change is over (answered, refused or not answered): the list goes back to the speed really in use
   clearTimeout(PC.baudTimer); PC.baudTimer = null; PC.baudPend = 0;
   const bs = $("baudSel"); if (bs) { bs.disabled = false; bs.value = String(S.baud || 115200); }
@@ -1703,6 +1752,8 @@ function pcBaudDone(msg) {            // the change is over (answered, refused o
 }
 function pcBaudChange() {             // the person picked a speed
   const bs = $("baudSel"), rate = Number(bs.value), cur = S.baud || 115200;
+  if (S.mode !== "serial") { if (PC_BAUDS.indexOf(rate) >= 0) S.baud = rate; else bs.value = String(cur); return; }   // not connected: this is where the next Connect starts
+  if (PC.probe) { bs.value = String(cur); return; }                  // the probe is choosing the speed
   if (PC.baudPend || PC_BAUDS.indexOf(rate) < 0 || rate === cur || !pcSend("nova baud " + rate, "")) { bs.value = String(PC.baudPend || cur); return; }
   PC.baudPend = rate; bs.disabled = true;
   cmdLog("Asking the radio to switch the USB link to " + rate + " baud\u2026");
@@ -1714,15 +1765,14 @@ function onNovaReply(line) {
   if (!o || typeof o !== "object" || !PC.baudPend) return;           // nobody asked, so nothing to do
   if (o.nova_ok === "baud") {
     if (typeof o.rate !== "number" || PC_BAUDS.indexOf(o.rate) < 0) { pcBaudDone("The radio answered the speed change with a speed this page cannot use (" + String(o.rate).slice(0, 12) + "). The link stays at " + (S.baud || 115200) + " baud."); return; }
-    const rate = o.rate; pcBaudDone(""); pcBaudReopen(rate);
+    const rate = o.rate; S.baud = rate; pcBaudDone(""); pcBaudApplied(rate);
   } else if (o.nova_error === "baud_unsupported") pcBaudDone("This radio cannot use " + PC.baudPend + " baud. The link stays at " + (S.baud || 115200) + " baud.");
 }
-// Web Serial cannot change the speed of an open port, so: release DTR/RTS in one step (the radio is not restarted by that), close, open again at the new speed.
-async function pcBaudReopen(rate) {
-  const port = S.port; if (!port || S.mode !== "serial" || S.reopening) return false;
-  S.reopening = true; S.baud = rate;
+// Web Serial cannot change the speed of an open port, so: release DTR/RTS in one step (the radio is not restarted by that) and close. Gives back the (closed) port, or null.
+async function pcCloseLink() {
+  const port = S.port; if (!port || S.mode !== "serial" || S.reopening) return null;
+  S.reopening = true;
   try {
-    cmdLog("Switching the USB link to " + rate + " baud\u2026"); termAdd("reopening the port at " + rate + " baud", "ev");
     const done = new Promise((res) => { S.loopEnd = res; });
     try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) { /* this browser cannot set them */ }
     S.manual = true;                                                    // so the read loop's end is a planned one
@@ -1730,7 +1780,22 @@ async function pcBaudReopen(rate) {
     await Promise.race([done, new Promise((r) => setTimeout(r, 2000))]);
     S.loopEnd = null;
   } finally { S.reopening = false; }
-  connect(port);                                                        // opens at S.baud
+  return port;
+}
+async function pcBaudReopen(rate) {   // a probe step: close, open again at the next speed
+  if (!S.port || S.mode !== "serial" || S.reopening) return false;
+  S.baud = rate; termAdd("reopening the port at " + rate + " baud", "ev");
+  const port = await pcCloseLink(); if (!port) return false;
+  connect(port);                                                        // opens at S.baud and sends the next hello
+  return true;
+}
+async function pcBaudApplied(rate) {  // the radio said ok: it uses the new speed after its next restart, so close now and look for it again when it is back
+  if (!S.port || S.mode !== "serial" || S.reopening) return false;
+  S.baud = rate;
+  if (!(await pcCloseLink())) return false;
+  autoFlag(true);                                                       // the page connects again by itself when the radio shows up (and then probes, starting at this speed)
+  const msg = "The radio will use " + rate + " baud after it restarts. Restart the radio now. This page connects again by itself when the radio is back, and looks for it starting at " + rate + " baud.";
+  setStatus("off", "Not connected, waiting for the radio to restart"); notice(msg); cmdLog(msg);
   return true;
 }
 $("baudSel").addEventListener("change", pcBaudChange);
@@ -1941,6 +2006,7 @@ function demoMesh(D) {            // made-up packets for the sample data
 
 function onLine(line) {
   line = line.trim();
+  pcProbeLine(line);
   if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); if (PET.seen) pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"contacts"') === 1) { onContactsLine(line); return; }
@@ -2588,7 +2654,7 @@ async function holdLines(p) { try { await p.setSignals({ dataTerminalReady: true
 async function openPort(port) {          // a radio that has just restarted takes a few seconds to show up again, so try more than once
   let err;
   for (let i = 0; i < 6; i++) {
-    try { await port.open({ baudRate: S.baud || 115200 }); await holdLines(port); return; }   // leave the control lines as the system sets them: many boards stay silent unless DTR is on
+    try { await port.open({ baudRate: S.baud || 115200 }); S.openRate = S.baud || 115200; await holdLines(port); return; }   // leave the control lines as the system sets them: many boards stay silent unless DTR is on
     catch (e) { err = e; if (e.name === "InvalidStateError") { try { await port.close(); } catch (e2) { /* was not open */ } } await new Promise((r) => setTimeout(r, 1200)); }
   }
   throw err;
@@ -2601,9 +2667,12 @@ async function connect(known) {
   try {
     stopDemo();
     const kp = S.kept; S.kept = null;           // a port left open by Disconnect is picked up again as it is: reopening it would restart the radio
-    S.port = known || (kp && kp.readable && kp.writable ? kp : null) || await navigator.serial.requestPort();
+    pcProbeBegin();                             // a fresh Connect starts the probe at the speed in the list (S.baud = that speed)
+    const kpOpen = !!(kp && kp.readable && kp.writable); let kpShut = null;
+    if (kpOpen && S.openRate !== S.baud) { try { await kp.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) { /* this browser cannot set them */ } try { await kp.close(); kpShut = kp; } catch (e) { /* stays as it is */ } }   // that port is open at another speed
+    S.port = known || (kpOpen && !kpShut ? kp : null) || kpShut || await navigator.serial.requestPort();
     if (!(S.port.readable && S.port.writable)) await openPort(S.port);
-  } catch (e) { S.opening = false; S.port = null; if (e.name !== "NotFoundError") notice("Could not open the radio's USB port: " + e.message + ". Close other programs that use it (the flasher, a serial monitor) and try again. If it still fails, unplug the radio and plug it in again."); return; }
+  } catch (e) { S.opening = false; S.port = null; pcProbeStop(); if (e.name !== "NotFoundError") notice("Could not open the radio's USB port: " + e.message + ". Close other programs that use it (the flasher, a serial monitor) and try again. If it still fails, unplug the radio and plug it in again."); return; }
   S.opening = false; S.manual = false; autoFlag(true); termAdd("port opened", "ev");
   S.mode = "serial"; setStatus("waiting", "Connected, waiting for data"); $("btnConnect").textContent = "Disconnect";
   const enc = new TextEncoderStream(); S.wpipe = enc.readable.pipeTo(S.port.writable, { preventClose: true, preventAbort: true, preventCancel: true }).catch(() => {}); S.writer = enc.writable.getWriter();
@@ -2613,8 +2682,9 @@ async function connect(known) {
   let tick = 0;
   // keep asking for the analyzer: a radio that was still starting up ignores the first requests, so never give up (just ask less often when nothing answers)
   S.lastRx = Date.now(); let quiet = false;
-  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; if (S.baud && S.baud !== 115200) { S.baud = 115200; termAdd("no answer at the chosen speed: the next connect uses 115200 baud", "ev"); } termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if ((MESH.seen || tick <= 3 || tick % 5 === 0) && !(PC.dx && !pcCap("mesh"))) send("nova mesh"); if (PET.ask) petAsk(); };
-  S.hello(); S.keep = setInterval(S.hello, 3000);
+  S.hello = () => { if (Date.now() - S.lastRx > 12000) { if (!quiet) { quiet = true; termAdd("nothing received from the radio for 12 s", "ev"); notice("The radio is connected but is not sending anything. Wait a few seconds if it just restarted. If this stays, press the radio's reset button or unplug it and plug it back in (the Serial console under Radio diagnostics shows what it prints)."); } } else if (quiet) { quiet = false; termAdd("radio is sending again", "ev"); notice(""); } send("nova hello"); tick++; if ((MESH.seen || tick <= 3 || tick % 5 === 0) && !(PC.dx && !pcCap("mesh"))) send("nova mesh"); if (PET.ask) petAsk(); };
+  S.startKeep = () => { S.hello(); S.keep = setInterval(S.hello, 3000); };
+  if (!pcProbeStart()) { S.startKeep = null; S.hello(); S.keep = setInterval(S.hello, 3000); }   // while probing, only "nova hello" is sent; the rest starts when a valid answer arrives
   let buf = "";
   try {
     for (;;) {
@@ -2628,7 +2698,8 @@ async function connect(known) {
   if (S.loopEnd) { const f = S.loopEnd; S.loopEnd = null; f(); }       // a speed change waits for this
 }
 async function disconnect(lost) {
-  clearInterval(S.keep); S.keep = null; S.hello = null;
+  clearInterval(S.keep); S.keep = null; S.hello = null; S.startKeep = null;
+  if (!S.reopening) pcProbeStop();            // the person pressed Disconnect, or the radio went away: no more probing (a probe step reopening the port keeps it going)
   const port = S.port, rd = S.reader, wr = S.writer, rp = S.rpipe, wp = S.wpipe;
   S.port = S.reader = S.writer = S.rpipe = S.wpipe = null; S.mode = "off";
   if (!lost) autoFlag(false);

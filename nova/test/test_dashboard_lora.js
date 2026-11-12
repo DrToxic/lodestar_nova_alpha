@@ -187,35 +187,38 @@ function oldDraw(fb, g) { const K = 8, r = [], st = { s: "" }; r.push({ s: "#050
 const pc = cut("/*PETCTL-START*/", "/*PETCTL-END*/");
 ok(/baudRate: S\.baud \|\| 115200/.test(html), "static: the port is opened at S.baud (115200 unless the person changed it)");
 ok(!/innerHTML/.test(pc.slice(pc.indexOf("const PC_BAUDS"))), "static: the speed code never uses innerHTML");
-ok(/<label class="baud" id="baudBox" hidden>/.test(html), "the speed list is hidden in the markup");
+ok(/<label class="baud" id="baudBox">/.test(html) && !/id="baudBox" hidden/.test(html), "the speed list is in the markup from the start (it shows before any hello)");
 const opts = (html.match(/<select id="baudSel"[^>]*>(.*?)<\/select>/) || [])[1] || ""; eq((opts.match(/value="(\d+)"/g) || []).map((x) => +x.replace(/\D/g, "")), [115200, 230400, 460800, 921600], "the list is 115200, 230400, 460800, 921600");
 ctx.S.dxpro = false; ctx.S.port = null;
 vm.runInContext(pc.replace(/^const /gm, "var "), ctx);
+const status = [], term = []; let noticeText = "", flag = null;
+ctx.setStatus = (s, t) => { status.push([s, t]); }; ctx.notice = (t) => { noticeText = t; }; ctx.termAdd = (t) => { term.push(t); }; ctx.autoFlag = (v) => { flag = v; };
 ctx.onMeshLine = () => {}; ctx.onPetLine = () => {}; ctx.onFound = () => {}; ctx.onFrame = () => {}; ctx.onContactsLine = () => {};
 { const ia = html.indexOf("function onLine(line) {"), ib = html.indexOf("\n}\n", ia); vm.runInContext(html.slice(ia, ib + 2), ctx); }
 const feed = (o) => run("onLine(" + JSON.stringify(typeof o === "string" ? o : JSON.stringify(o)) + ")");
 const tick = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
 const calls = []; let signals = [];
 function fresh(caps, ed) {
-  timers = []; sent.length = 0; calls.length = 0; ctx.cmdText = "";
+  run("pcProbeStop()"); timers = []; sent.length = 0; calls.length = 0; ctx.cmdText = ""; status.length = 0; term.length = 0; noticeText = ""; flag = null; ctx.S.startKeep = null;
   ctx.S.mode = "serial"; ctx.S.baud = undefined; ctx.S.manual = false; ctx.S.reopening = false; ctx.S.loopEnd = null;
   ctx.S.port = { name: "port", setSignals: async (s) => { calls.push("signals:" + s.dataTerminalReady + "/" + s.requestToSend); } };
   run("PC.reset(); pcSync()"); els.baudSel.value = "115200";
   if (caps) feed(JSON.stringify({ ed: ed || "dx-pro", nova: { v: 1, caps } }));
 }
 ctx.disconnect = async (lost) => { calls.push("disconnect:" + lost); await Promise.resolve(); if (ctx.S.loopEnd) { const f = ctx.S.loopEnd; ctx.S.loopEnd = null; f(); } };
-ctx.connect = (port) => { calls.push("connect:" + (port && port.name) + "@" + ctx.S.baud); };
+ctx.connect = (port) => { calls.push("connect:" + (port && port.name) + "@" + ctx.S.baud); ctx.S.port = port; ctx.S.mode = "serial"; run("pcProbeStart()"); };   // like the page's connect(): opens at S.baud, then the probe asks
 const shown = () => els.baudBox && !els.baudBox.hidden;
 const pick = (v) => { els.baudSel.value = String(v); els.baudSel.fire("change"); };
 
-fresh(); ok(!shown(), "no speed list before any hello");
+fresh(); ok(shown(), "the speed list shows before any hello, so any radio can be probed at the chosen speed");
+ctx.S.mode = "off"; run("pcSync()"); ok(shown(), "and when not connected");
 fresh({ pet: 1, contacts: 1, petname: 1 }); ok(!shown(), "no speed list when the hello has no baud cap");
 fresh({ pet: 1, baud: 0 }); ok(!shown(), "no speed list when baud is 0");
 fresh({ pet: 1, baud: "1" }); ok(!shown(), "no speed list when baud is a string");
 fresh(); feed({ ed: "orion", nova: 1, v: "0.3.0" }); ok(!shown(), "no speed list for an Orion radio (every other control shows, this one does not)");
 fresh({ pet: 1, baud: 1 }); ok(shown(), "speed list shown when the hello has baud:1");
 eq(run("Object.keys(PC.caps).indexOf('baud') >= 0"), true, "baud is one of the known capabilities");
-fresh({ pet: 1, baud: 1 }); run("PC.reset(); pcSync()"); ok(!shown(), "hidden again after a reset (connect or disconnect)");
+fresh({ pet: 1, baud: 1 }); run("PC.reset(); pcSync()"); ok(shown(), "after a reset (connect or disconnect) there is no hello yet, so the list shows again");
 fresh({ baud: 921600 }); ok(shown(), "a number above 0 counts");
 
 // asking
@@ -228,17 +231,23 @@ fresh({ baud: 1 }); eq(run('pcSend("nova baud 12345", "")'), false, "pcSend refu
 fresh({ pet: 1 }); pick(460800); eq(sent, [], "a radio without the baud cap is never asked");
 fresh(); feed({ ed: "orion", nova: 1, v: "0.3.0" }); eq(run('pcSend("nova baud 460800", "")'), false, "an Orion radio is never sent nova baud");
 
-// success: the page reopens the port at the new rate
+// success: the page closes the port; the radio uses the new speed after its restart
 (async () => {
   fresh({ baud: 1 }); pick(460800); sent.length = 0; calls.length = 0;
   feed('{"nova_ok":"baud","rate":460800}'); await tick();
-  eq(calls, ["signals:false/false", "disconnect:true", "connect:port@460800"], "reply ok: release DTR/RTS in one step, close, reconnect at the new rate");
-  eq(ctx.S.baud, 460800, "S.baud is the new rate"); ok(!els.baudSel.disabled, "the list is free again"); ok(/460800/.test(ctx.cmdText), "the command log says the link is switching");
-  ok(ctx.S.reopening === false, "reopening flag cleared");
+  eq(calls, ["signals:false/false", "disconnect:true"], "reply ok: release DTR/RTS in one step and close, nothing is reopened");
+  eq(ctx.S.baud, 460800, "S.baud is the new rate"); ok(!els.baudSel.disabled, "the list is free again"); ok(/460800/.test(ctx.cmdText) && /after it restarts/.test(ctx.cmdText) && /460800/.test(noticeText), "the page tells the person the radio applies it on its restart");
+  eq(flag, true, "the page will connect again by itself when the radio is back"); ok(ctx.S.reopening === false, "reopening flag cleared");
+  eq(status[status.length - 1], ["off", "Not connected, waiting for the radio to restart"], "the status says it is waiting for the restart");
+  run("pcSync()"); eq(els.baudSel.value, "460800", "the list shows the new speed");
+
+  // the radio is back: the next connect probes starting at the new speed, and finds it if the radio did not take it
+  run("pcProbeBegin()"); eq(run("PC.probe.seq.slice(0, 4)"), [460800, 921600, 115200, 230400], "the re-probe starts at the new speed and goes round");
+  ctx.S.mode = "serial"; calls.length = 0;
 
   // the rate in the reply wins over what was asked, if the page knows it
   fresh({ baud: 1 }); pick(230400); calls.length = 0; feed('{"nova_ok":"baud","rate":921600}'); await tick();
-  eq(calls[calls.length - 1], "connect:port@921600", "the radio's own rate is the one used");
+  eq(ctx.S.baud, 921600, "the radio's own rate is the one used"); eq(calls, ["signals:false/false", "disconnect:true"], "and the port is closed");
   // a rate the page cannot use
   fresh({ baud: 1 }); pick(230400); calls.length = 0; feed('{"nova_ok":"baud","rate":57600}'); await tick();
   eq(calls, [], "a rate outside the list reopens nothing"); eq(ctx.S.baud, undefined, "S.baud unchanged"); ok(!els.baudSel.disabled && els.baudSel.value === "115200", "list back to the real speed");
@@ -262,15 +271,92 @@ fresh(); feed({ ed: "orion", nova: 1, v: "0.3.0" }); eq(run('pcSend("nova baud 4
   // reset while waiting
   fresh({ baud: 1 }); pick(230400); run("PC.reset(); pcSync()"); ok(!els.baudSel.disabled, "a reset (disconnect) frees the list"); calls.length = 0; feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls, [], "and a late answer is ignored");
   // two replies
-  fresh({ baud: 1 }); pick(230400); calls.length = 0; feed('{"nova_ok":"baud","rate":230400}'); feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls.filter((c) => c.startsWith("connect")).length, 1, "a repeated answer reconnects once");
+  fresh({ baud: 1 }); pick(230400); calls.length = 0; feed('{"nova_ok":"baud","rate":230400}'); feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls.filter((c) => c.startsWith("disconnect")).length, 1, "a repeated answer closes once");
   // the reopen needs a port in serial mode
   fresh({ baud: 1 }); pick(230400); ctx.S.port = null; calls.length = 0; feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls, [], "no port, no reopen");
   // wait for the read loop: connect only runs after it ended
   fresh({ baud: 1 }); pick(230400); calls.length = 0; ctx.disconnect = async (lost) => { calls.push("disconnect:" + lost); setImmediate(() => { calls.push("loop-ended"); if (ctx.S.loopEnd) { const f = ctx.S.loopEnd; ctx.S.loopEnd = null; f(); } }); };
-  feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls, ["signals:false/false", "disconnect:true", "loop-ended", "connect:port@230400"], "connect waits until the old read loop has ended");
+  feed('{"nova_ok":"baud","rate":230400}'); await tick(); eq(calls, ["signals:false/false", "disconnect:true", "loop-ended"], "the close waits until the old read loop has ended");
   ok(/if \(S\.loopEnd\) \{ const f = S\.loopEnd; S\.loopEnd = null; f\(\); \}/.test(html.slice(html.indexOf("async function connect"), html.indexOf("async function disconnect"))), "static: connect() signals the end of its read loop");
-  ok(/no answer at the chosen speed/.test(html), "static: silence at a chosen speed falls back to 115200 for the next connect");
+  ok(!/no answer at the chosen speed/.test(html), "static: the old silent fall-back to 115200 is gone (the probe replaces it)");
   ok(/line\.indexOf\('"nova_ok"'\) === 1/.test(html), "static: onLine routes the speed answers");
+
+  // ---------------------------------------------------------------- 7. the circular probe
+  const NOREPLY = "No reply at any speed. Set the same speed in the radio's Options > Display > Serial speed, reboot the radio, then connect again.";
+  const HELLO = JSON.stringify({ ed: "dx-pro", nova: { v: 1, caps: { pet: 1, contacts: 1, petname: 1, baud: 1 } } });
+  const stepTimer = () => { const t = timers.filter((x) => x.on && x.ms === 1000); if (t.length !== 1) return false; timers = timers.filter((x) => x !== t[0]); t[0].on = false; t[0].f(); return true; };
+  const begin = (rate) => { fresh(); ctx.S.mode = "off"; els.baudSel.value = String(rate); els.baudSel.fire("change"); ctx.S.mode = "serial"; run("pcProbeBegin()"); run("pcProbeStart()"); };
+  const hellos = () => sent.filter((l) => l === "nova hello").length;
+
+  // order: the listed speed first, then the others in order, wrapping
+  eq(run("pcProbeSeq(115200)"), [115200, 230400, 460800, 921600, 115200, 230400, 460800, 921600, 115200, 230400, 460800, 921600], "probe order from 115200, three passes");
+  eq(run("pcProbeSeq(460800)").slice(0, 6), [460800, 921600, 115200, 230400, 460800, 921600], "probe order from 460800 wraps round");
+  eq(run("pcProbeSeq(921600)").slice(0, 5), [921600, 115200, 230400, 460800, 921600], "probe order from 921600 wraps round");
+  eq(run("pcProbeSeq(57600)").slice(0, 2), [115200, 230400], "an unknown start falls back to the first speed");
+  eq(run("pcProbeSeq(230400).length"), 12, "three passes of four speeds is twelve tries");
+
+  // the page starts at the listed speed
+  fresh(); ctx.S.mode = "off"; els.baudSel.value = "460800"; els.baudSel.fire("change"); eq(ctx.S.baud, 460800, "choosing a speed while not connected sets where Connect starts");
+  run("pcProbeBegin()"); eq([ctx.S.baud, run("PC.probe.seq[0]")], [460800, 460800], "Connect starts the probe at the listed speed"); ok(shown(), "the list is shown"); run("pcSync()"); ok(els.baudSel.disabled, "and is locked while the probe runs");
+  run("pcProbeStop()");
+
+  // each step: one hello, about a second, then the next speed
+  begin(460800);
+  eq(sent, ["nova hello"], "the first try sends nova hello and nothing else"); eq(timers.filter((x) => x.on).map((x) => x.ms), [1000], "and waits about 1 s");
+  ok(/460800 baud \(try 1 of 12\)/.test(status[status.length - 1][1]), "the status names the speed and the try");
+  pick(115200); eq([sent.length, els.baudSel.value], [1, "460800"], "the list cannot be changed mid-probe (it goes back to the speed being tried)");
+  const rates = [];
+  for (let i = 0; i < 11; i++) { calls.length = 0; ok(stepTimer(), "step " + (i + 1) + " timer fires"); await tick(); rates.push(+calls[calls.length - 1].split("@")[1]); eq(calls.slice(0, 2), ["signals:false/false", "disconnect:true"], "each step closes the port in one go before reopening"); }
+  eq(rates, [921600, 115200, 230400, 460800, 921600, 115200, 230400, 460800, 921600, 115200, 230400], "eleven reopens follow the circular order");
+  eq(hellos(), 12, "twelve hellos in all, one per try"); eq(sent.length, 12, "and nothing but hellos");
+  eq(run("PC.probe.i"), 11, "on the last try"); ok(noticeText === "", "no message yet");
+  calls.length = 0; ok(stepTimer(), "the last wait ends"); await tick();
+  eq(calls.filter((c) => c.startsWith("connect")), [], "after three passes the link is closed, not reopened"); ok(calls.indexOf("disconnect:true") >= 0, "the port was closed");
+  eq(noticeText, NOREPLY, "no reply at any speed shows the clear message"); eq(ctx.cmdText, NOREPLY, "in the command log too");
+  eq(run("PC.probe"), null, "the probe is over"); eq(ctx.S.baud, 460800, "the list goes back to the speed the person chose"); eq(flag, false, "no automatic reconnect loop"); eq(sent.length, 12, "nothing was sent to change the radio");
+  ok(!stepTimer(), "no 13th try"); eq(status[status.length - 1], ["off", "Not connected"], "status is Not connected");
+
+  // the first speed to give a valid line wins
+  begin(115200); sent.length = 0; calls.length = 0; ctx.S.startKeep = () => { calls.push("keep-alive-started"); };
+  stepTimer(); await tick(); eq(ctx.S.baud, 230400, "second try is 230400");
+  ctx.S.startKeep = () => { calls.push("keep-alive-started"); }; calls.length = 0;
+  feed(HELLO); await tick();
+  eq(run("PC.probe"), null, "a valid hello ends the probe"); eq(ctx.S.baud, 230400, "S.baud is the speed that answered"); eq(els.baudSel.value, "230400", "the list shows that speed");
+  eq(calls, ["keep-alive-started"], "the normal keep-alive starts, no more tries"); ok(!stepTimer(), "the pending timer is gone");
+  ok(run("PC.caps.pet === true && PC.caps.baud === true && PC.dx"), "the caps were read from that hello"); ok(shown(), "the list stays (baud cap)");
+  eq(noticeText, "", "no message"); ok(!els.baudSel.disabled, "the list is free again");
+  eq(run("pcBaudOn()"), true, "nova baud is now allowed");
+  // later lines after a match do not restart anything
+  calls.length = 0; feed(HELLO); eq(calls, [], "a second hello later changes nothing");
+
+  // garbled lines never count
+  begin(115200); sent.length = 0;
+  const junk = ['{"ed":"dx-pro","nova":{"v":1,"ca', '{"nova":1', '\u0000\u00ff{"nova":1}', '\u00e4\u0003\u0000{"ed":"orion","nova":1}', "nova", '{"mesh":{}}', '{"ed":"dx-pro"}', '[{"nova":1}]', '{"nova_ok":"baud","rate":115200}', '{"nova":1}}', "{nova:1}", "", "{}", "null", '"nova"'];
+  junk.forEach((l) => feed(l));
+  ok(run("PC.probe") !== null && run("PC.probe.i") === 0, "none of " + junk.length + " garbled or foreign lines ended the probe"); eq(ctx.S.baud, 115200, "the speed did not change");
+  ok(!run("PC.dx"), "and none was taken for a DX-Pro hello"); feed("# OK"); ok(run("PC.probe") !== null, "a bare # OK line is not a hello either");
+  ok(stepTimer(), "the probe still moves on after junk"); await tick(); eq(ctx.S.baud, 230400, "to the next speed");
+  feed('{"ed":"orion","nova":1,"v":"0.3.0"}'); eq(run("PC.probe"), null, "a whole JSON line with a nova key counts, for an Orion radio too"); eq(els.baudSel.value, "230400", "at that speed");
+  begin(921600); feed('{"nova":{"v":1}}'); eq([run("PC.probe"), ctx.S.baud], [null, 921600], "a match on the very first try stops right there"); ok(!stepTimer(), "with no step");
+
+  // a match on the last try still counts; a match after the end does not restart the probe
+  begin(115200); for (let i = 0; i < 11; i++) { stepTimer(); await tick(); }
+  eq(run("PC.probe.i"), 11, "last try"); feed(HELLO); eq(run("PC.probe"), null, "a hello on the last try still counts"); eq(noticeText, "", "no failure message");
+  begin(115200); for (let i = 0; i < 12; i++) { stepTimer(); await tick(); } noticeText = ""; calls.length = 0; feed(HELLO);
+  eq(noticeText, "", "a hello after the probe gave up does not show or hide anything"); eq(calls, [], "and starts nothing");
+
+  // the person pressing Disconnect, or an unplug, ends the probe (the page's disconnect() calls pcProbeStop unless it is only reopening)
+  ok(/if \(!S\.reopening\) pcProbeStop\(\);/.test(html.slice(html.indexOf("async function disconnect"), html.indexOf("/* reconnect by itself"))), "static: disconnect() stops the probe unless a probe step is reopening the port");
+  const cs = html.slice(html.indexOf("async function connect"), html.indexOf("async function disconnect"));
+  ok(/pcProbeBegin\(\);/.test(cs) && /if \(!pcProbeStart\(\)\)/.test(cs) && /S\.startKeep = \(\) =>/.test(cs), "static: connect() begins the probe, and starts the keep-alive only after a match");
+  ok(/S\.openRate !== S\.baud/.test(cs), "static: a port left open at another speed is closed and opened again at the listed speed");
+  ok(/line = line\.trim\(\);\n  pcProbeLine\(line\);/.test(html), "static: onLine feeds every line to the probe first");
+  ok(/PC_NOREPLY = "No reply at any speed\. Set the same speed in the radio's Options > Display > Serial speed, reboot the radio, then connect again\."/.test(html), "static: the no-reply message is word for word");
+  ok(!/innerHTML/.test(pc.slice(pc.indexOf("const PC_PROBE_MS"))), "static: the probe code never uses innerHTML");
+
+  // the list before and after a hello
+  fresh(); ok(shown(), "before a hello: shown"); feed(HELLO); ok(shown(), "hello with baud: shown");
+  fresh({ pet: 1 }); ok(!shown(), "hello without baud: hidden"); fresh(); feed('{"ed":"orion","nova":1}'); ok(!shown(), "Orion: hidden"); fresh({ pet: 1, baud: 1 }); run("PC.reset(); pcSync()"); ok(shown(), "after a reset: shown");
 
   console.log(pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);
