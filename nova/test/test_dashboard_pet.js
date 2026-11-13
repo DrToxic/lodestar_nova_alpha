@@ -237,5 +237,70 @@ ok(/if \(!S\.frame && !S\.dxpro\) setStatus\("waiting"/.test(html), "static: a D
 ok(/&& !\(PC\.dx && !pcCap\("mesh"\)\)\) send\("nova mesh"\)/.test(html), "static: no 'nova mesh' asked of a radio without caps.mesh");
 ok(/\{ n: "nova hello" \}|send\("nova hello"\)/.test(html), "static: the page still says nova hello every keep-alive");
 ok(!/innerHTML/.test(html.slice(html.indexOf("function pcHello"), html.indexOf("function pcSend"))), "static: hello handling never uses innerHTML");
+// ---- screen-off screensaver: {"screen":"off"} sets the state, any picture (key or delta) clears it; the decoder is untouched ----
+{
+  const a1 = html.indexOf("/*PET-BEGIN*/"), b1 = html.indexOf("setInterval(() => {", html.indexOf("function onPetLine"));
+  ok(a1 > 0 && b1 > a1, "pet block through onPetLine found");
+  const src = html.slice(a1, b1);
+  const texts = [], rects = []; let raf = [], cancelled = 0, rid = 0, now = 5000;
+  const cv = { width: 1024, height: 512, style: {}, getContext: () => ({ set fillStyle(v) {}, fillRect(x, y, w, h) { rects.push([x, y, w, h]); }, fillText(t, x, y) { texts.push([t, x, y]); }, set font(v) {}, set textBaseline(v) {} }) };
+  const E = {}; const mk = (id) => ({ id, hidden: false, textContent: "", dataset: {}, disabled: false, value: "", classList: { remove() {}, add() {}, toggle() {} } });
+  const c2 = { atob: (s) => Buffer.from(s, "base64").toString("binary"), Uint8Array, Math, Number, JSON, Date: { now: () => now }, S: { mode: "serial" }, PC: {}, pcCap: () => true, send() {}, cmdLog() {}, document: { activeElement: null },
+    $: (id) => (id === "petCanvas" ? cv : E[id] || (E[id] = mk(id))),
+    requestAnimationFrame: (f) => { raf.push(f); return ++rid; }, cancelAnimationFrame: () => { cancelled++; }, setTimeout() { throw new Error("no timers"); }, setInterval() { throw new Error("no timers"); } };
+  vm.createContext(c2);
+  vm.runInContext(src.replace(/^const /gm, "var "), c2);
+  const r2 = (c) => vm.runInContext(c, c2), P = r2("PET"), cap = () => E.petCap.textContent, off = () => r2("SAVER.off");
+  const key = (s, d) => JSON.stringify({ pet: { s, k: 1, d: d || "gQ==" } }), delta = (s) => JSON.stringify({ pet: { s, k: 0, d: "gQ==" } });
+  const line = (l) => { c2.__l = l; r2("onPetLine(__l)"); };
+  ok(!/setTimeout|setInterval/.test(src.slice(src.indexOf("const SAVER"), src.indexOf("function petState"))), "the screensaver code uses no timers, only animation frames");
+  ok(/line\.indexOf\('"screen"'\) === 1/.test(html), "static: onLine routes a {\"screen\":...} line to the pet code");
+
+  // decoder output for existing frames: unchanged
+  line(key(5)); eq([P.fb[0], P.seq, P.fmt.w, P.fmt.h, P.seen], [0x81, 5, 128, 64, 1], "a key frame decodes as before");
+  ok(!off(), "a picture does not set screen-off");
+  line(delta(6)); eq([P.fb[0], P.seq], [0, 6], "a delta decodes as before (XOR)");
+  line(delta(8)); eq([P.fb[0], P.seq], [0, -1], "a missed delta is still refused");
+  line(key(10)); eq([P.fb[0], P.seq], [0x81, 10], "key again");
+
+  // screen:off sets the state, blanks, shows the label, starts the loop
+  line('{"screen":"off"}');
+  ok(off(), "screen:off sets the screen-off state");
+  eq(cap(), "Radio screen asleep", "label shows Radio screen asleep");
+  eq(raf.length, 1, "one animation frame requested");
+  eq([P.fb[0], P.seq], [0x81, 10], "screen:off leaves the decoder state alone");
+  line('{"screen":"off"}'); eq(raf.length, 1, "a repeated screen:off changes nothing");
+  // the loop: both emoji drawn, bounce inside the canvas for a long run, independent movement
+  const frame = (dt) => { now += dt; const f = raf.shift(); f(now); };
+  frame(0); frame(16.7);
+  eq(texts.slice(-2).map((t) => t[0]), ["\u{1F41F}", "\u{1F43A}"], "fish and wolf are drawn as text");
+  let ok1 = true; const seen = [[], []]; const first = texts.slice(-2).map((t) => [t[1], t[2]]);
+  for (let i = 0; i < 3000; i++) { frame(16.7); const t = texts.slice(-2); t.forEach((e, k) => { if (e[1] < 0 || e[2] < 0 || e[1] > 1024 || e[2] > 512) ok1 = false; seen[k].push(e[1]); }); }
+  ok(ok1, "both emoji stay inside the canvas over 3000 frames");
+  const sp = r2("SAVER.sp"); ok(Math.abs(sp[0].vx) !== Math.abs(sp[1].vx) && Math.abs(sp[0].vy) !== Math.abs(sp[1].vy), "each emoji has its own speed");
+  ok(Math.max(...seen[0]) > 900 && Math.min(...seen[0]) < 50, "the fish reaches both side edges (it bounces)");
+  ok(r2("SAVER.sp[0].vx") !== 0, "still moving");
+  // a long pause does not make a huge jump: at most 5 fixed steps per frame
+  const x0 = r2("SAVER.sp[0].x"); frame(60000); ok(Math.abs(r2("SAVER.sp[0].x") - x0) <= 5 * 1024 * 0.0042 + 1, "a long gap between frames is capped to a few fixed steps");
+  // the 'check the radio' warning is not shown while the screen is off
+  P.last = 0; r2("S.mode = 'serial'");
+  ok(!/No new picture/.test(cap()), "no 'check the radio' text while asleep");
+
+  // a pet key clears it
+  line(key(20, "AAA="));
+  ok(!off(), "a pet key clears screen-off"); ok(cancelled >= 1, "the animation loop is cancelled"); eq(P.seq, 20, "key applied after wake");
+  ok(!/asleep/.test(cap()), "the asleep label is gone after a key");
+  // a pet delta clears it (stream in sequence: the sleep did not disturb seq)
+  line(key(30)); line('{"screen":"off"}'); ok(off(), "off again");
+  line(delta(31)); ok(!off(), "a pet delta clears screen-off"); eq([P.fb[0], P.seq], [0, 31], "the delta after sleep applies in sequence");
+  // a refused delta (missed one) still ends the screen-off state
+  line('{"screen":"off"}'); line(delta(40)); ok(!off(), "a refused delta also ends screen-off (the radio is awake)"); eq(P.seq, -1, "and waits for a key frame as before");
+  // other values of screen do nothing
+  line('{"screen":"on"}'); ok(!off(), "screen other than off does not sleep"); line("null"); ok(!off(), "null line is ignored");
+  // after the wake a late animation frame draws nothing more
+  const n = texts.length; raf.splice(0).forEach((f) => f(now + 20)); eq(texts.length, n, "a stray frame after wake draws nothing");
+}
+
+
 console.log(pass + " passed, " + fail + " failed");
 process.exit(fail ? 1 : 0);

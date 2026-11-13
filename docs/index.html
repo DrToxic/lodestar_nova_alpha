@@ -1530,12 +1530,49 @@ function petCaption() {
   if (inp.disabled) { inp.disabled = false; $("petNameSet").disabled = false; }
   if (document.activeElement !== inp && inp.dataset.shown !== m.u + "|" + m.i) { inp.value = m.u; inp.dataset.shown = m.u + "|" + m.i; }
 }
+/* Screen-off screensaver. The radio sends {"screen":"off"} once when its screen goes to sleep; the pet area is blanked and a fish and a wolf bounce on it
+   until the next picture (key or delta) arrives. It changes only on messages and animation frames: no timer, no heartbeat. */
+const SAVER = { off: false, raf: 0, last: 0, acc: 0, STEP: 1000 / 60, sp: [] };
+function saverInit(W, H) {
+  const s = Math.max(8, Math.round(H / 8));      // emoji size; each one has its own start, speed and direction
+  SAVER.sp = [{ e: "\u{1F41F}", x: W * .2, y: H * .3, vx: W * .0042, vy: H * .0056, s }, { e: "\u{1F43A}", x: W * .6, y: H * .6, vx: -W * .0031, vy: -H * .0047, s }];
+}
+function saverStep(W, H) {                       // one fixed step: move, bounce off the edges like a DVD logo
+  SAVER.sp.forEach((p) => {
+    const b = p.s * 1.25;
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) { p.x = 0; p.vx = Math.abs(p.vx); } else if (p.x > W - b) { p.x = Math.max(0, W - b); p.vx = -Math.abs(p.vx); }
+    if (p.y < 0) { p.y = 0; p.vy = Math.abs(p.vy); } else if (p.y > H - b) { p.y = Math.max(0, H - b); p.vy = -Math.abs(p.vy); }
+  });
+}
+function saverFrame(t) {
+  if (!SAVER.off) { SAVER.raf = 0; return; }
+  const c = $("petCanvas"), x = c.getContext("2d");
+  if (!SAVER.last) SAVER.last = t;
+  SAVER.acc = Math.min(SAVER.acc + t - SAVER.last, SAVER.STEP * 5); SAVER.last = t;
+  while (SAVER.acc >= SAVER.STEP) { saverStep(c.width, c.height); SAVER.acc -= SAVER.STEP; }
+  x.fillStyle = "#05080c"; x.fillRect(0, 0, c.width, c.height);
+  SAVER.sp.forEach((p) => { x.font = p.s + "px sans-serif"; x.textBaseline = "top"; x.fillText(p.e, p.x, p.y); });
+  SAVER.raf = requestAnimationFrame(saverFrame);
+}
+function petSleep() {
+  if (SAVER.off) return;                         // the radio says it once; a repeat changes nothing
+  const c = $("petCanvas"), el = $("petCap");
+  SAVER.off = true; SAVER.last = 0; SAVER.acc = 0; saverInit(c.width, c.height);
+  el.textContent = "Radio screen asleep"; el.classList.remove("stale"); petState("");
+  SAVER.raf = requestAnimationFrame(saverFrame);
+}
+function petWake() {
+  if (!SAVER.off) return;
+  SAVER.off = false; if (SAVER.raf) cancelAnimationFrame(SAVER.raf); SAVER.raf = 0;
+  $("petCap").textContent = "Waiting for the pet\u2026";      // petCaption() replaces it as soon as a picture is applied
+}
 function petState(msg, bad) { const e = $("petState"); e.textContent = msg; e.classList.toggle("bad", !!bad); e.hidden = !msg; }
 function petAsk() {                    // called with every keep-alive while connected
   if (PC.dx && !pcCap("pet")) return;     // a DX-Pro radio without a pet is not asked for one
   send("nova pet");
   PET.asks = (PET.asks || 0) + 1;
-  if (!PET.seen) {
+  if (!PET.seen && !SAVER.off) {
     if (PET.nosupport) petState("This radio's firmware has no pet. The pet needs the LODESTAR ORION + Pet firmware, version 0.3.0 or newer (see the pet repository).", true);
     else if (PET.asks > 3) petState("No pet picture yet. The pet needs the LODESTAR ORION + Pet firmware, version 0.3.0 or newer, on a radio that has its own screen. Still asking\u2026", true);
     else petState("Asking the radio for its pet\u2026");
@@ -1544,13 +1581,17 @@ function petAsk() {                    // called with every keep-alive while con
 }
 function onPetLine(line) {
   let o; try { o = JSON.parse(line); } catch (e) { return; }
-  if (!PET.apply(o.pet)) return;
+  if (!o) return;
+  if (o.screen === "off") { petSleep(); return; }
+  const woke = SAVER.off && !!o.pet && typeof o.pet === "object";      // any picture, key or delta, ends the screen-off state
+  if (woke) { petWake(); PET.last = Date.now(); }
+  if (!PET.apply(o.pet)) { if (woke) { petDraw(); petCaption(); } return; }
   if (!PET.seen) cmdLog("pet: picture stream started");
   PET.seen++; PET.last = Date.now(); petState("");
   petDraw(); petCaption();
 }
 setInterval(() => {                    // say so when the pictures stop coming
-  if (PET.seen && Date.now() - PET.last > (PET.fmt.eink ? 30000 : 4000) && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
+  if (PET.seen && !SAVER.off && Date.now() - PET.last > (PET.fmt.eink ? 30000 : 4000) && S.mode === "serial") { $("petCap").textContent = "No new picture. Is the radio still plugged in?"; $("petCap").classList.add("stale"); }
 }, 2000);
 $("btnPet").addEventListener("click", () => { $("petPanel").scrollIntoView({ behavior: "smooth", block: "start" }); $("petFull").focus({ preventScroll: true }); });
 $("petFull").addEventListener("click", () => { const b = $("petBox"); if (document.fullscreenElement) document.exitFullscreen(); else if (b.requestFullscreen) b.requestFullscreen(); });
@@ -2008,7 +2049,7 @@ function onLine(line) {
   line = line.trim();
   pcProbeLine(line);
   if (line[0] === "{" && line.indexOf('"mesh"') === 1) { onMeshLine(line); pcNote(true); return; }
-  if (line[0] === "{" && line.indexOf('"pet"') === 1) { onPetLine(line); if (PET.seen) pcNote(true); return; }
+  if (line[0] === "{" && (line.indexOf('"pet"') === 1 || line.indexOf('"screen"') === 1)) { onPetLine(line); if (PET.seen) pcNote(true); return; }
   if (line[0] === "{" && line.indexOf('"contacts"') === 1) { onContactsLine(line); return; }
   if (line[0] === "{" && (line.indexOf('"nova_ok"') === 1 || line.indexOf('"nova_error"') === 1)) { onNovaReply(line); return; }
   if (line[0] === "{" && line.indexOf('"nova"') > 0) { try { const o = JSON.parse(line); if (o.found) onFound(o.found); else if (o.ed === "dx-pro" && o.nova && typeof o.nova === "object") pcHello(o); else { pcNote(o.ed === "orion"); onFrame(o); } } catch (e) { /* a half line: wait for the next */ } }
@@ -2678,7 +2719,7 @@ async function connect(known) {
   const enc = new TextEncoderStream(); S.wpipe = enc.readable.pipeTo(S.port.writable, { preventClose: true, preventAbort: true, preventCancel: true }).catch(() => {}); S.writer = enc.writable.getWriter();
   const dec = new TextDecoderStream(); S.rpipe = S.port.readable.pipeTo(dec.writable, { preventClose: true, preventAbort: true, preventCancel: true }).catch(() => {}); S.reader = dec.readable.getReader();
   MESH.asks = 0; MESH.seen = 0;
-  PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet…"); PC.reset(); pcSync();
+  petWake(); PET.reset(); PET.ask = true; PET.asks = 0; PET.nosupport = false; petState("Asking the radio for its pet…"); PC.reset(); pcSync();
   let tick = 0;
   // keep asking for the analyzer: a radio that was still starting up ignores the first requests, so never give up (just ask less often when nothing answers)
   S.lastRx = Date.now(); let quiet = false;
@@ -2710,7 +2751,7 @@ async function disconnect(lost) {
   // Closing the port drops DTR/RTS, which restarts the radio. A manual Disconnect therefore only lets go of the streams and leaves the port open; Connect picks it up again.
   if (port && !lost && port.readable && port.writable) S.kept = port;
   else if (port) { S.kept = null; try { await port.close(); } catch (e) {} }
-  PET.ask = false; PET.asks = 0; PET.nosupport = false; PET.seen = 0; petState("Connect your radio to see your pet here."); PC.reset(); pcSync();
+  petWake(); PET.ask = false; PET.asks = 0; PET.nosupport = false; PET.seen = 0; petState("Connect your radio to see your pet here."); PC.reset(); pcSync();
   $("btnConnect").textContent = "Connect radio";
   setStatus("off", lost ? "Radio unplugged, restarting or closed" : "Not connected");
 }
